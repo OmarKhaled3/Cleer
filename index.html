@@ -223,7 +223,7 @@ const BrowseView = () => {
     if (!db) { setRows([]); return; }
     db.from('submissions')
       .select('*')
-      .eq('is_visible', true)
+      .or('is_visible.eq.true,is_seeded.eq.true')
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setLoadError(error.message); setRows([]); }
@@ -657,7 +657,7 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse }) => {
     if (!db) { setPreviewRows([]); return; }
     db.from('submissions')
       .select('job_title, city, industry, company_type, salary_min, salary_max')
-      .eq('is_visible', true)
+      .or('is_visible.eq.true,is_seeded.eq.true')
       .limit(3)
       .then(({ data }) => setPreviewRows(data || []));
   }, [result]);
