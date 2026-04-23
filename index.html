@@ -638,7 +638,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
           <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
             <Pill type="submit" variant="filled"
               style={{ padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
-              {submitting ? 'Submitting…' : 'Share in 60 seconds'}
+              {submitting ? 'Submitting…' : 'Add my salary'}
             </Pill>
             <BackBtn/>
           </div>
@@ -999,7 +999,7 @@ const LandingPage = ({ onEnter }) => {
           onMouseLeave={e => e.currentTarget.style.background = navDark ? 'rgba(255,255,255,0.12)' : 'transparent'}
           >Browse salaries</button>
 
-          <Pill variant="filled" onClick={() => onEnter('submit')}>Share anonymously in 60 seconds.</Pill>
+          <Pill variant="filled" onClick={() => onEnter('submit')}>Share anonymously</Pill>
         </div>
       </nav>
 
@@ -1030,22 +1030,14 @@ const LandingPage = ({ onEnter }) => {
             A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
           </p>
           <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-            <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Share anonymously in 60 seconds.</Pill>
+            <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Share anonymously</Pill>
             <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'14px 32px', fontSize:16 }}>Browse salaries →</Pill>
           </div>
           <div style={{ marginTop:48, fontSize:13, color:'#B0ABA4', display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
             <span>Built for Egypt</span>
             <span>·</span>
-            <span>Net salaries only</span>
-            <span>·</span>
             <span>No login required</span>
             <span>·</span>
-            {subCount != null && (
-              <>
-                <span><span style={{ color:'#3A9D8A', fontWeight:500 }}>{subCount.toLocaleString()}</span> salaries submitted</span>
-                <span>·</span>
-              </>
-            )}
             <button onClick={() => onEnter('calculate')} style={{
               background:'none', border:'none', cursor:'pointer', fontFamily:'DM Sans',
               fontSize:13, color:'#3A9D8A', padding:0, fontWeight:500,
@@ -1075,6 +1067,12 @@ const LandingPage = ({ onEnter }) => {
               See all →
             </button>
           </div>
+
+          {subCount != null && (
+            <div style={{ fontSize:13, color:'#B0ABA4', marginBottom:18 }}>
+              <span style={{ color:'#3A9D8A', fontWeight:500 }}>{subCount.toLocaleString()}</span> professionals have already contributed
+            </div>
+          )}
 
           <div style={{ position:'relative' }}>
             <div className="three-col" style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:14 }}>
