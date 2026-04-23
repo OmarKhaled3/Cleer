@@ -324,6 +324,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
     experience:'', city:'', currency:'EGP', salaryType:'gross',
     baseMin:'', baseMax:'',
   });
+  const [step,       setStep]       = useState(1);
   const [submitted,  setSubmitted]  = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors,     setErrors]     = useState({});
@@ -335,22 +336,36 @@ const SubmitView = ({ showGate, onBrowse }) => {
     setApiError('');
   };
 
-  const validate = () => {
+  const validateStep = (s) => {
     const e = {};
-    if (!form.title.trim()) e.title = true;
-    if (!form.industry)     e.industry = true;
-    if (!form.companyType)  e.companyType = true;
-    if (!form.companySize)  e.companySize = true;
-    if (!form.experience)   e.experience = true;
-    if (!form.city)         e.city = true;
-    if (!form.baseMin)      e.baseMin = true;
-    if (!form.baseMax)      e.baseMax = true;
+    if (s === 1) {
+      if (!form.title.trim()) e.title = true;
+      if (!form.industry)     e.industry = true;
+    } else if (s === 2) {
+      if (!form.experience)   e.experience = true;
+    } else {
+      if (!form.companyType)  e.companyType = true;
+      if (!form.companySize)  e.companySize = true;
+      if (!form.city)         e.city = true;
+      if (!form.baseMin)      e.baseMin = true;
+      if (!form.baseMax)      e.baseMax = true;
+    }
     return e;
   };
 
+  const handleNext = () => {
+    const errs = validateStep(step);
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setErrors({});
+    setStep(s => s + 1);
+    window.scrollTo(0, 0);
+  };
+
+  const handleBack = () => { setStep(s => s - 1); setErrors({}); window.scrollTo(0, 0); };
+
   const handleSubmit = async (ev) => {
     ev.preventDefault();
-    const errs = validate();
+    const errs = validateStep(3);
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setSubmitting(true);
 
@@ -380,7 +395,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
     setSubmitting(false);
   };
 
-  const L = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
+  const L   = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
   const inp = (err) => ({
     width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
     border: err ? '1.5px solid #E8826A' : '1.5px solid #E0DBD4',
@@ -403,6 +418,15 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
   const subs = INDUSTRY_SUBS[form.industry] || [];
 
+  const BackBtn = () => (
+    <button type="button" onClick={handleBack} style={{
+      background:'none', border:'none', cursor:'pointer', fontFamily:'DM Sans',
+      fontSize:14, color:'#9B9690', padding:'13px 0', lineHeight:1,
+    }}>← Back</button>
+  );
+
+  const stepSubtitle = ['Your role and industry.', 'Your experience level.', 'Last step — your salary details.'][step - 1];
+
   if (submitted) return (
     <div style={{ maxWidth:520, margin:'80px auto', padding:'0 24px', textAlign:'center' }}>
       <div style={{ width:56, height:56, borderRadius:'50%', background:'#DFF0ED', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px' }}>
@@ -416,7 +440,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
       </div>
       <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
         <Pill variant="filled" onClick={onBrowse} style={{ padding:'13px 28px', fontSize:15 }}>Browse the database →</Pill>
-        <Pill variant="ghost" onClick={() => setSubmitted(false)}>Submit another</Pill>
+        <Pill variant="ghost" onClick={() => { setSubmitted(false); setStep(1); }}>Submit another</Pill>
       </div>
     </div>
   );
@@ -433,132 +457,178 @@ const SubmitView = ({ showGate, onBrowse }) => {
         </div>
       )}
 
-      <div style={{ marginBottom:32 }}>
+      {/* Progress indicator */}
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:32 }}>
+        <span style={{ fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', textTransform:'uppercase', whiteSpace:'nowrap' }}>
+          Step {step} of 3
+        </span>
+        <div style={{ flex:1, height:2, background:'#E8E4DE', borderRadius:1, overflow:'hidden' }}>
+          <div style={{
+            height:'100%', background:'#3A9D8A', borderRadius:1,
+            width:`${Math.round(step / 3 * 100)}%`, transition:'width 0.3s ease',
+          }}/>
+        </div>
+      </div>
+
+      {/* Heading */}
+      <div style={{ marginBottom:28 }}>
         <div style={{ fontFamily:'Playfair Display', fontSize:24, marginBottom:8 }}>Share your salary</div>
-        <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>Anonymous · takes under a minute · no account needed</div>
+        <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>{stepSubtitle}</div>
       </div>
 
-      <div style={{ border:'1.5px solid #E0DBD4', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.65, marginBottom:28 }}>
-        <span style={{ fontWeight:500, color:'#6B6660' }}>Honest data only.</span>{' '}
-        Submit your current salary or a real offer you received. No estimates, no rumors, no friend-of-a-friend numbers. We&#39;d rather have 200 honest entries than 2,000 noisy ones.
-      </div>
+      {/* ── Step 1: Role ── */}
+      {step === 1 && (
+        <form onSubmit={e => { e.preventDefault(); handleNext(); }} noValidate
+          style={{ display:'flex', flexDirection:'column', gap:22 }}>
 
-      <form onSubmit={handleSubmit} noValidate style={{ display:'flex', flexDirection:'column', gap:22 }}>
-
-        {/* Job title */}
-        <div>
-          <label style={L}>JOB TITLE</label>
-          <input value={form.title} onChange={e=>set('title',e.target.value)}
-            placeholder="e.g. Senior Product Manager" style={inp(errors.title)}/>
-          {errors.title && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
-        </div>
-
-        {/* Industry + sub */}
-        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-          <div>
-            <label style={L}>INDUSTRY</label>
-            <Sel field="industry" options={Object.keys(INDUSTRY_SUBS)} placeholder="Select industry"/>
-            {errors.industry && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          <div style={{ border:'1.5px solid #E0DBD4', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.65 }}>
+            <span style={{ fontWeight:500, color:'#6B6660' }}>Honest data only.</span>{' '}
+            Submit your current salary or a real offer you received. No estimates, no rumors, no friend-of-a-friend numbers.
           </div>
-          <div>
-            <label style={L}>SUB-CATEGORY</label>
-            <Sel field="industrySub" options={subs}
-              placeholder={form.industry ? 'Select sub-category' : 'Select industry first'}
-              disabled={!form.industry}/>
-          </div>
-        </div>
 
-        {/* Company type + size */}
-        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           <div>
-            <label style={L}>COMPANY TYPE</label>
-            <Sel field="companyType" options={["Multinational","Local","Startup"]} placeholder="Select type"/>
-            {errors.companyType && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            <label style={L}>JOB TITLE</label>
+            <input value={form.title} onChange={e=>set('title',e.target.value)}
+              placeholder="e.g. Senior Product Manager" style={inp(errors.title)}/>
+            {errors.title && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
           </div>
-          <div>
-            <label style={L}>COMPANY SIZE</label>
-            <Sel field="companySize" options={COMPANY_SIZES} placeholder="No. of employees"/>
-            {errors.companySize && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
-          </div>
-        </div>
 
-        {/* Experience + City */}
-        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+            <div>
+              <label style={L}>INDUSTRY</label>
+              <Sel field="industry" options={Object.keys(INDUSTRY_SUBS)} placeholder="Select industry"/>
+              {errors.industry && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            </div>
+            <div>
+              <label style={L}>SUB-CATEGORY</label>
+              <Sel field="industrySub" options={subs}
+                placeholder={form.industry ? 'Select sub-category' : 'Select industry first'}
+                disabled={!form.industry}/>
+            </div>
+          </div>
+
+          <Pill type="submit" variant="filled" style={{ alignSelf:'flex-start', padding:'13px 32px', fontSize:15 }}>
+            Continue →
+          </Pill>
+        </form>
+      )}
+
+      {/* ── Step 2: Experience ── */}
+      {step === 2 && (
+        <form onSubmit={e => { e.preventDefault(); handleNext(); }} noValidate
+          style={{ display:'flex', flexDirection:'column', gap:22 }}>
+
           <div>
             <label style={L}>YEARS OF EXPERIENCE</label>
             <Sel field="experience" options={EXP_RANGES} placeholder="Select range"/>
             {errors.experience && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
           </div>
+
+          <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+            <Pill type="submit" variant="filled" style={{ padding:'13px 32px', fontSize:15 }}>
+              Continue →
+            </Pill>
+            <BackBtn/>
+          </div>
+        </form>
+      )}
+
+      {/* ── Step 3: Company & salary ── */}
+      {step === 3 && (
+        <form onSubmit={handleSubmit} noValidate style={{ display:'flex', flexDirection:'column', gap:22 }}>
+
+          {/* Context chip — role + experience from previous steps */}
+          <div style={{ background:'#F7F5F2', borderRadius:12, padding:'12px 16px', fontSize:13, color:'#6B6660', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+            <span style={{ fontWeight:500 }}>{form.title}</span>
+            <span style={{ color:'#D5D0C8' }}>·</span>
+            <span>{form.industry}{form.industrySub ? ` / ${form.industrySub}` : ''}</span>
+            <span style={{ color:'#D5D0C8' }}>·</span>
+            <span>{form.experience}</span>
+          </div>
+
+          <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+            <div>
+              <label style={L}>COMPANY TYPE</label>
+              <Sel field="companyType" options={["Multinational","Local","Startup"]} placeholder="Select type"/>
+              {errors.companyType && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            </div>
+            <div>
+              <label style={L}>COMPANY SIZE</label>
+              <Sel field="companySize" options={COMPANY_SIZES} placeholder="No. of employees"/>
+              {errors.companySize && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            </div>
+          </div>
+
           <div>
             <label style={L}>CITY</label>
             <Sel field="city" options={CITIES_FORM} placeholder="Select city"/>
             {errors.city && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
           </div>
-        </div>
 
-        {/* Base salary */}
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-            <label style={{...L, marginBottom:0}}>MONTHLY BASE SALARY</label>
-            {/* Gross / Net toggle */}
-            <div style={{ display:'flex', background:'#ECEAE5', borderRadius:999, padding:3, gap:2 }}>
-              {['gross','net'].map(t => (
-                <button key={t} type="button" onClick={() => set('salaryType', t)} style={{
-                  padding:'4px 12px', borderRadius:999, border:'none', cursor:'pointer',
-                  fontFamily:'DM Sans', fontSize:12, fontWeight:500, textTransform:'capitalize',
-                  background: form.salaryType === t ? '#fff' : 'transparent',
-                  color: form.salaryType === t ? '#1A1916' : '#9B9690',
-                  boxShadow: form.salaryType === t ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
-                  transition:'all 0.15s',
-                }}>{t}</button>
-              ))}
+          {/* Base salary */}
+          <div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+              <label style={{...L, marginBottom:0}}>MONTHLY BASE SALARY</label>
+              <div style={{ display:'flex', background:'#ECEAE5', borderRadius:999, padding:3, gap:2 }}>
+                {['gross','net'].map(t => (
+                  <button key={t} type="button" onClick={() => set('salaryType', t)} style={{
+                    padding:'4px 12px', borderRadius:999, border:'none', cursor:'pointer',
+                    fontFamily:'DM Sans', fontSize:12, fontWeight:500, textTransform:'capitalize',
+                    background: form.salaryType === t ? '#fff' : 'transparent',
+                    color: form.salaryType === t ? '#1A1916' : '#9B9690',
+                    boxShadow: form.salaryType === t ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+                    transition:'all 0.15s',
+                  }}>{t}</button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div style={{ fontSize:12, color:'#B0ABA4', marginBottom:10 }}>
-            Offers are usually gross. Your take-home is net.
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr auto', gap:10, alignItems:'center' }}>
-            <input type="number" value={form.baseMin} onChange={e=>set('baseMin',e.target.value)}
-              placeholder="Min" style={inp(errors.baseMin)}/>
-            <span style={{ color:'#9B9690', fontSize:14 }}>—</span>
-            <input type="number" value={form.baseMax} onChange={e=>set('baseMax',e.target.value)}
-              placeholder="Max" style={inp(errors.baseMax)}/>
-            <div style={{ position:'relative', minWidth:120 }}>
-              <select value={form.currency} onChange={e=>set('currency',e.target.value)} style={{
-                ...inp(false), minWidth:120, cursor:'pointer', appearance:'none', WebkitAppearance:'none',
-              }}>
-                <option>EGP</option>
-                <option>USD-pegged</option>
-              </select>
-              <Chevron/>
+            <div style={{ fontSize:12, color:'#B0ABA4', marginBottom:10 }}>
+              Offers are usually gross. Your take-home is net.
             </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr auto', gap:10, alignItems:'center' }}>
+              <input type="number" value={form.baseMin} onChange={e=>set('baseMin',e.target.value)}
+                placeholder="Min" style={inp(errors.baseMin)}/>
+              <span style={{ color:'#9B9690', fontSize:14 }}>—</span>
+              <input type="number" value={form.baseMax} onChange={e=>set('baseMax',e.target.value)}
+                placeholder="Max" style={inp(errors.baseMax)}/>
+              <div style={{ position:'relative', minWidth:120 }}>
+                <select value={form.currency} onChange={e=>set('currency',e.target.value)} style={{
+                  ...inp(false), minWidth:120, cursor:'pointer', appearance:'none', WebkitAppearance:'none',
+                }}>
+                  <option>EGP</option>
+                  <option>USD-pegged</option>
+                </select>
+                <Chevron/>
+              </div>
+            </div>
+            {(errors.baseMin || errors.baseMax) && (
+              <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Min and max are required</div>
+            )}
           </div>
-          {(errors.baseMin || errors.baseMax) && (
-            <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Min and max are required</div>
+
+          <div style={{ background:'#F7F5F2', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.6 }}>
+            Your submission is fully anonymous. We don&#39;t collect your name, email, or IP address. Nothing links this entry back to you.
+          </div>
+
+          <p style={{ fontSize:13, color:'#9B9690', lineHeight:1.6 }}>
+            Only submit your current net salary or a real offer you received. No estimates, no guesses.
+          </p>
+
+          {apiError && (
+            <div style={{ fontSize:13, color:'#E8826A', padding:'12px 16px', background:'#FEF4F1', borderRadius:10 }}>
+              {apiError}
+            </div>
           )}
-        </div>
 
-        {/* Privacy note */}
-        <div style={{ background:'#F7F5F2', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.6 }}>
-          Your submission is fully anonymous. We don&#39;t collect your name, email, or IP address. Nothing links this entry back to you.
-        </div>
-
-        {/* Pre-submit copy */}
-        <p style={{ fontSize:13, color:'#9B9690', lineHeight:1.6 }}>
-          Only submit your current net salary or a real offer you received. No estimates, no guesses.
-        </p>
-
-        {apiError && (
-          <div style={{ fontSize:13, color:'#E8826A', padding:'12px 16px', background:'#FEF4F1', borderRadius:10 }}>
-            {apiError}
+          <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+            <Pill type="submit" variant="filled"
+              style={{ padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? 'Submitting…' : 'Share in 60 seconds'}
+            </Pill>
+            <BackBtn/>
           </div>
-        )}
-
-        <Pill type="submit" variant="filled"
-          style={{ alignSelf:'flex-start', padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
-          {submitting ? 'Submitting…' : 'Share in 60 seconds'}
-        </Pill>
-      </form>
+        </form>
+      )}
     </div>
   );
 };
@@ -973,6 +1043,15 @@ const LandingPage = ({ onEnter }) => {
         </div>
       </section>
 
+      {/* ── Differentiator ── */}
+      <div style={{ padding:'0 48px' }}>
+        <div style={{ maxWidth:900, margin:'0 auto', borderTop:'1px solid #E8E4DE', padding:'20px 0', textAlign:'center' }}>
+          <span style={{ fontSize:12, color:'#B0ABA4', letterSpacing:'0.03em' }}>
+            Built for Egypt. Net salaries only. No login required.
+          </span>
+        </div>
+      </div>
+
       {/* ── Data preview ── */}
       <section className="lp-sec" style={{ padding:'0 48px 120px', overflow:'hidden' }}>
         <div style={{ maxWidth:900, margin:'0 auto' }}>
@@ -1041,7 +1120,11 @@ const LandingPage = ({ onEnter }) => {
 
       {/* ── Trust / anonymity ── */}
       <section className="lp-sec" style={{ padding:'80px 48px' }}>
-        <div className="three-col" style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:48, maxWidth:820, margin:'0 auto' }}>
+        <div style={{ background:'#EAE7E1', borderRadius:24, padding:'48px 40px', maxWidth:820, margin:'0 auto' }}>
+          <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', textTransform:'uppercase', marginBottom:32 }}>
+            Your data, protected
+          </div>
+          <div className="three-col" style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:48 }}>
           {[
             {
               icon: (
@@ -1085,6 +1168,7 @@ const LandingPage = ({ onEnter }) => {
               <div style={{ fontSize:14, color:'#9B9690', lineHeight:1.7 }}>{body}</div>
             </div>
           ))}
+          </div>
         </div>
       </section>
 
