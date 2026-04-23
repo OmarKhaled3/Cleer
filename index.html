@@ -556,7 +556,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
         <Pill type="submit" variant="filled"
           style={{ alignSelf:'flex-start', padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
-          {submitting ? 'Submitting…' : 'Submit anonymously'}
+          {submitting ? 'Submitting…' : 'Share in 60 seconds'}
         </Pill>
       </form>
     </div>
@@ -759,9 +759,9 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
   const onGoSubmit       = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
 
   const TABS = [
-    ['browse',    'Browse salaries', 'Browse'],
-    ['submit',    'Submit yours',    'Submit'],
-    ['calculate', 'Calculate',       'Calculate'],
+    ['browse',    'Browse salaries',               'Browse'],
+    ['submit',    'Share anonymously in 60 seconds.', 'Share'],
+    ['calculate', 'Calculate',                     'Calculate'],
   ];
 
   return (
@@ -803,6 +803,7 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
 const LandingPage = ({ onEnter }) => {
   const [heroVisible, setHeroVisible] = useState(false);
   const [navDark,     setNavDark]     = useState(false);
+  const [subCount,    setSubCount]    = useState(0);
   const darkRef                       = useRef(null);
 
   useEffect(() => { setTimeout(() => setHeroVisible(true), 80); }, []);
@@ -814,6 +815,16 @@ const LandingPage = ({ onEnter }) => {
     );
     if (darkRef.current) obs.observe(darkRef.current);
     return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!db) return;
+    const today = new Date().toISOString().split('T')[0];
+    db.from('submissions')
+      .select('*', { count:'exact', head:true })
+      .eq('is_visible', true)
+      .gte('created_at', today)
+      .then(({ count }) => { if (count > 0) setSubCount(count); });
   }, []);
 
   return (
@@ -853,7 +864,7 @@ const LandingPage = ({ onEnter }) => {
           onMouseLeave={e => e.currentTarget.style.background = navDark ? 'rgba(255,255,255,0.12)' : 'transparent'}
           >Browse salaries</button>
 
-          <Pill variant="filled" onClick={() => onEnter('submit')}>Submit yours</Pill>
+          <Pill variant="filled" onClick={() => onEnter('submit')}>Share anonymously in 60 seconds.</Pill>
         </div>
       </nav>
 
@@ -884,7 +895,7 @@ const LandingPage = ({ onEnter }) => {
             A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
           </p>
           <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-            <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Submit yours</Pill>
+            <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Share anonymously in 60 seconds.</Pill>
             <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'14px 32px', fontSize:16 }}>Browse salaries →</Pill>
           </div>
           <div style={{ marginTop:48, fontSize:13, color:'#B0ABA4', display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
@@ -899,6 +910,11 @@ const LandingPage = ({ onEnter }) => {
               Calculate your take-home →
             </button>
           </div>
+          {subCount > 0 && (
+            <div style={{ marginTop:14, fontSize:13, color:'#B0ABA4' }}>
+              {subCount.toLocaleString()} professionals have shared their salary today.
+            </div>
+          )}
         </div>
       </section>
 
@@ -977,6 +993,19 @@ const LandingPage = ({ onEnter }) => {
         </div>
       </section>
 
+      {/* ── Pull quote ── */}
+      <section className="lp-sec" style={{ padding:'100px 48px', textAlign:'center' }}>
+        <div style={{ maxWidth:680, margin:'0 auto' }}>
+          <p style={{
+            fontFamily:'Playfair Display', fontStyle:'italic', fontWeight:400,
+            fontSize:'clamp(20px, 2.4vw, 30px)', lineHeight:1.7,
+            color:'#4A4540', letterSpacing:'-0.01em',
+          }}>
+            "Ahmed received an offer for 28,000 EGP. He had no idea if that was fair for a Senior Accountant at a multinational in Cairo. He checked Cleer, saw the real range, and negotiated up."
+          </p>
+        </div>
+      </section>
+
       {/* ── How it works ── */}
       <section className="lp-sec" style={{ padding:'120px 48px' }}>
         <div style={{ maxWidth:900, margin:'0 auto' }}>
@@ -1026,7 +1055,7 @@ const LandingPage = ({ onEnter }) => {
             }}
             onMouseEnter={e=>e.currentTarget.style.opacity='0.9'}
             onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
-              Submit yours
+              Share anonymously in 60 seconds.
             </button>
             <button onClick={() => onEnter('browse')} style={{
               padding:'14px 32px', borderRadius:999, cursor:'pointer', fontSize:16, fontWeight:500,
