@@ -86,6 +86,17 @@ function calcTakeHome(grossMonthly) {
   };
 }
 
+function calcGrossFromNet(targetNet) {
+  let lo = targetNet, hi = targetNet * 2;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    const r = calcTakeHome(mid);
+    if (Math.abs(r.net - targetNet) < 1) return r;
+    if (r.net < targetNet) lo = mid; else hi = mid;
+  }
+  return calcTakeHome((lo + hi) / 2);
+}
+
 // ─── Static options ───────────────────────────────────────────────────────────
 const INDUSTRIES    = ["All industries","Tech / SaaS","Fintech","Healthcare","FMCG","Banking","Logistics","Manufacturing"];
 const COMPANY_TYPES = ["All company types","Multinational","Local","Startup"];
@@ -540,15 +551,20 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
 // ─── Calculator View ──────────────────────────────────────────────────────────
 const CalculatorView = ({ onGoSubmit }) => {
-  const [gross,  setGross]  = useState('');
+  const [mode,   setMode]   = useState('gross-to-net');
+  const [input,  setInput]  = useState('');
   const [result, setResult] = useState(null);
+
+  const isNtG = mode === 'net-to-gross';
 
   const handleCalc = (ev) => {
     ev.preventDefault();
-    const g = parseFloat(gross);
-    if (!g || g <= 0) return;
-    setResult(calcTakeHome(g));
+    const v = parseFloat(input);
+    if (!v || v <= 0) return;
+    setResult(isNtG ? calcGrossFromNet(v) : calcTakeHome(v));
   };
+
+  const switchMode = (m) => { setMode(m); setInput(''); setResult(null); };
 
   const DeductionRow = ({ label, value }) => (
     <div style={{ display:'flex', justifyContent:'space-between', padding:'9px 0', borderBottom:'1px solid #F2EFE9', fontSize:14, color:'#6B6660' }}>
@@ -560,22 +576,41 @@ const CalculatorView = ({ onGoSubmit }) => {
   return (
     <div style={{ maxWidth:520, margin:'0 auto', padding:'40px 24px 80px' }}>
 
-      <div style={{ marginBottom:32 }}>
+      <div style={{ marginBottom:24 }}>
         <div style={{ fontFamily:'Playfair Display', fontSize:24, marginBottom:8 }}>Take-home calculator</div>
         <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>
           Egypt 2025/2026 · Official tax brackets · No account needed
         </div>
       </div>
 
+      {/* Mode toggle */}
+      <div style={{ display:'inline-flex', background:'#EEEAE4', borderRadius:999, padding:4, marginBottom:24 }}>
+        {[['gross-to-net', 'Gross → Net'], ['net-to-gross', 'Net → Gross']].map(([key, label]) => (
+          <button key={key} type="button" onClick={() => switchMode(key)} style={{
+            padding:'8px 18px', borderRadius:999, fontSize:13, fontWeight:500,
+            border:'none', cursor:'pointer', transition:'all 0.18s ease', fontFamily:'DM Sans',
+            background: mode === key ? '#fff' : 'transparent',
+            color:      mode === key ? '#1A1916' : '#6B6660',
+            boxShadow:  mode === key ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {isNtG && (
+        <div style={{ fontSize:13, color:'#6B6660', lineHeight:1.6, marginBottom:20, background:'#F7F5F2', borderRadius:12, padding:'12px 16px' }}>
+          Know what gross to negotiate for — enter your target take-home and see the gross you need to ask for.
+        </div>
+      )}
+
       <form onSubmit={handleCalc}>
         <label style={{ fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 }}>
-          MONTHLY GROSS SALARY (EGP)
+          {isNtG ? 'TARGET MONTHLY NET (EGP)' : 'MONTHLY GROSS SALARY (EGP)'}
         </label>
         <div style={{ display:'flex', gap:10, marginBottom: result ? 32 : 0 }}>
           <input
-            type="number" value={gross}
-            onChange={e => { setGross(e.target.value); setResult(null); }}
-            placeholder="e.g. 30,000"
+            type="number" value={input}
+            onChange={e => { setInput(e.target.value); setResult(null); }}
+            placeholder={isNtG ? 'e.g. 25,000' : 'e.g. 30,000'}
             style={{
               flex:1, padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
               border:'1.5px solid #E0DBD4', background:'#fff', color:'#1A1916', outline:'none',
@@ -591,10 +626,10 @@ const CalculatorView = ({ onGoSubmit }) => {
         <>
           {/* Breakdown card */}
           <div style={{ background:'#fff', borderRadius:20, padding:'24px', border:'1.5px solid #E8E4DE', marginBottom:12 }}>
-            {/* Gross */}
+            {/* Header row */}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', paddingBottom:14, marginBottom:4, borderBottom:'1.5px solid #EEEAE4' }}>
-              <span style={{ fontSize:14, fontWeight:500 }}>Gross salary</span>
-              <span style={{ fontFamily:'Playfair Display', fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>
+              <span style={{ fontSize:14, fontWeight:500 }}>{isNtG ? 'Required gross' : 'Gross salary'}</span>
+              <span style={{ fontFamily:'Playfair Display', fontSize:isNtG ? 28 : 20, fontWeight:500, letterSpacing:'-0.02em', color: isNtG ? '#3A9D8A' : 'inherit' }}>
                 {fmt(result.gross)} EGP
               </span>
             </div>
@@ -604,10 +639,10 @@ const CalculatorView = ({ onGoSubmit }) => {
             <DeductionRow label="Health insurance (1%)"                   value={result.hi}/>
             <DeductionRow label="Income tax"                               value={result.incomeTax}/>
 
-            {/* Net */}
+            {/* Footer row */}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', paddingTop:16, marginTop:2 }}>
               <span style={{ fontSize:16, fontWeight:500 }}>Net take-home</span>
-              <span style={{ fontFamily:'Playfair Display', fontSize:28, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em' }}>
+              <span style={{ fontFamily:'Playfair Display', fontSize: isNtG ? 20 : 28, fontWeight:500, color: isNtG ? '#1A1916' : '#3A9D8A', letterSpacing:'-0.02em' }}>
                 {fmt(result.net)} EGP
               </span>
             </div>
@@ -620,7 +655,7 @@ const CalculatorView = ({ onGoSubmit }) => {
           {/* CTA */}
           <div style={{ background:'#F7F5F2', borderRadius:16, padding:'20px 24px' }}>
             <div style={{ fontSize:15, fontWeight:500, marginBottom:6, color:'#1A1916' }}>
-              Now you know your number.
+              {isNtG ? 'Now you know what to ask for.' : 'Now you know your number.'}
             </div>
             <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.65, marginBottom:16 }}>
               Add it to the database so the next person does too.
