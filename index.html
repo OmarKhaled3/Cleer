@@ -944,7 +944,6 @@ const LandingPage = ({ onEnter }) => {
     if (!db) return;
     db.from('submissions')
       .select('*', { count:'exact', head:true })
-      .eq('is_visible', true)
       .then(({ count }) => { if (count != null) setSubCount(count); });
   }, []);
 
@@ -1237,8 +1236,9 @@ const LandingPage = ({ onEnter }) => {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const App = () => {
-  const [view,     setView]     = useState('landing');
-  const [tab,      setTab]      = useState('submit');
+  const returning  = localStorage.getItem('cu_has_submitted') === 'true';
+  const [view,     setView]     = useState(returning ? 'utility' : 'landing');
+  const [tab,      setTab]      = useState(returning ? 'browse'  : 'submit');
   const [showGate, setShowGate] = useState(false);
 
   const goToUtility = (t) => {
