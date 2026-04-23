@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cleared Up</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: #F4F2EF;
+    color: #1A1916;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: #C8E8E2; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #D5D0C8; border-radius: 3px; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  @media (max-width: 700px) {
+    .two-col   { grid-template-columns: 1fr !important; }
+    .three-col { grid-template-columns: 1fr !important; gap: 40px !important; }
+    .lp-nav    { padding: 16px 24px !important; }
+    .lp-hero   { padding: 0 24px !important; }
+    .lp-sec    { padding: 80px 24px !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ─── Supabase client ──────────────────────────────────────────────────────────
+//  Replace both values with your Supabase project URL and anon key,
+//  found in: Project Settings → API.
+const SUPABASE_URL      = 'https://riakvzypwgwizgrqtetf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpYWt2enlwd2d3aXpncnF0ZXRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4OTczNjIsImV4cCI6MjA5MjQ3MzM2Mn0.jN_Zihkrz7htuYkdWFSDbb2fJtiMKUZvnmsaF4yAAFU';
+const configured = !SUPABASE_URL.startsWith('YOUR_');
+const db = configured
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+// ─── Tax calculator (Egypt 2025/2026, Andersen Egypt) ────────────────────────
+function annualTax(taxable) {
+  if (taxable <= 0) return 0;
+  const brackets = [
+    [0,       40000,   0.00 ],
+    [40000,   55000,   0.10 ],
+    [55000,   70000,   0.15 ],
+    [70000,   200000,  0.20 ],
+    [200000,  400000,  0.225],
+    [400000,  600000,  0.25 ],
+    [600000,  1200000, 0.275],
+    [1200000, Infinity,0.275],
+  ];
+  let tax = 0;
+  for (const [from, to, rate] of brackets) {
+    if (taxable <= from) break;
+    tax += (Math.min(taxable, to) - from) * rate;
+  }
+  return tax;
+}
+
+function calcTakeHome(grossMonthly) {
+  const si  = Math.min(grossMonthly, 14500) * 0.11;  // social insurance, capped
+  const hi  = grossMonthly * 0.01;                    // health insurance
+  const ati = Math.max(0, (grossMonthly - si - hi) * 12 - 20000); // annual taxable
+  const mt  = annualTax(ati) / 12;                    // monthly income tax
+  return {
+    gross: grossMonthly,
+    si, hi,
+    incomeTax: mt,
+    totalDeductions: si + hi + mt,
+    net: grossMonthly - si - hi - mt,
+  };
+}
+
+// ─── Static options ───────────────────────────────────────────────────────────
+const INDUSTRIES    = ["All industries","Tech / SaaS","Fintech","Healthcare","FMCG","Banking","Logistics","Manufacturing"];
+const COMPANY_TYPES = ["All company types","Multinational","Local","Startup"];
+const CITIES_FILTER = ["All cities","Cairo","Alexandria","Giza","Remote","Other"];
+const CITIES_FORM   = ["Cairo","Alexandria","Giza","Remote","Other"];
+const COMPANY_SIZES = ["1–50","50–200","200–1,000","1,000+"];
+const EXP_RANGES    = ["0–1 yrs","1–3 yrs","2–4 yrs","3–5 yrs","5–7 yrs","7–10 yrs","10+ yrs"];
+const INDUSTRY_SUBS = {
+  "Tech / SaaS":   ["B2B SaaS","E-commerce","Healthtech","Edtech","Consumer Tech","Other"],
+  "Fintech":       ["Payments","Lending","Investment","Insurance","Other"],
+  "Healthcare":    ["Hospital / Clinic","Pharma","MedTech","Other"],
+  "FMCG":          ["Food & Beverage","Personal Care","Household","Other"],
+  "Banking":       ["Retail Banking","Corporate Banking","Investment Banking","Other"],
+  "Logistics":     ["Freight","Last-mile","Supply Chain","Other"],
+  "Manufacturing": ["Industrial","Automotive","Textile","Other"],
+};
+
+const daysAgo = (ts) => Math.max(0, Math.floor((Date.now() - new Date(ts)) / 86400000));
+const fmt     = (n)  => Math.round(n).toLocaleString();
+
+// ─── Primitives ───────────────────────────────────────────────────────────────
+const Logo = ({ onClick, style }) => (
+  <div onClick={onClick} style={{
+    fontFamily:'Playfair Display', fontSize:20, fontWeight:500,
+    letterSpacing:'-0.02em', cursor: onClick ? 'pointer' : 'default', userSelect:'none', ...style,
+  }}>Cleared Up.</div>
+);
+
+const Tag = ({ children, accent }) => (
+  <span style={{
+    display:'inline-block', padding:'3px 10px', borderRadius:999,
+    fontSize:12, fontWeight:500, whiteSpace:'nowrap',
+    background: accent ? '#DFF0ED' : '#EEEAE4',
+    color:      accent ? '#2A7A6B' : '#6B6660',
+  }}>{children}</span>
+);
+
+const Chevron = () => (
+  <svg style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}
+    width="12" height="7" viewBox="0 0 12 7" fill="none">
+    <path d="M1 1L6 6L11 1" stroke="#9B9690" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const Pill = ({ children, onClick, variant='outline', style, type='button' }) => {
+  const [hov, setHov] = useState(false);
+  const base = {
+    display:'inline-flex', alignItems:'center', justifyContent:'center',
+    padding:'10px 22px', borderRadius:999, fontSize:14, fontWeight:500,
+    cursor:'pointer', transition:'all 0.18s ease', border:'none', outline:'none',
+    letterSpacing:'0.01em', userSelect:'none', fontFamily:'DM Sans', ...style,
+  };
+  const on = () => setHov(true), off = () => setHov(false);
+  if (variant === 'filled')
+    return <button type={type} onClick={onClick} onMouseEnter={on} onMouseLeave={off}
+      style={{...base, background: hov ? '#2E8070' : '#3A9D8A', color:'#fff'}}>{children}</button>;
+  if (variant === 'ghost')
+    return <button type={type} onClick={onClick} onMouseEnter={on} onMouseLeave={off}
+      style={{...base, background: hov ? '#EEEAE4' : 'transparent', color:'#1A1916', border:'1.5px solid #D5D0C8'}}>{children}</button>;
+  return <button type={type} onClick={onClick} onMouseEnter={on} onMouseLeave={off}
+    style={{...base, background: hov ? '#EEEAE4' : 'transparent', color:'#1A1916', border:'1.5px solid #C8C4BC'}}>{children}</button>;
+};
+
+// ─── Salary Card ──────────────────────────────────────────────────────────────
+const SalaryCard = ({ entry: e }) => {
+  const [hov, setHov] = useState(false);
+  const d = daysAgo(e.created_at);
+  return (
+    <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
+      background:'#fff', borderRadius:20, padding:'22px 24px',
+      border: hov ? '1.5px solid #B8D8D4' : '1.5px solid #E8E4DE',
+      transition:'border-color 0.18s, box-shadow 0.18s',
+      boxShadow: hov ? '0 4px 24px rgba(58,157,138,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
+      display:'flex', flexDirection:'column', gap:14,
+    }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+        <div style={{ fontFamily:'Playfair Display', fontSize:17, fontWeight:500, lineHeight:1.3 }}>{e.job_title}</div>
+        <Tag>{e.city}</Tag>
+      </div>
+      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+        <Tag>{e.industry}</Tag>
+        <Tag>{e.company_type}</Tag>
+        <Tag>{e.years_experience}</Tag>
+      </div>
+      <div style={{ borderTop:'1px solid #EEEAE4', paddingTop:14 }}>
+        <div style={{ fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#9B9690', marginBottom:4 }}>
+          MONTHLY · {e.currency} · {e.salary_type.toUpperCase()}
+        </div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+          <div style={{ fontFamily:'Playfair Display', fontSize:22, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em' }}>
+            {e.salary_min.toLocaleString()} – {e.salary_max.toLocaleString()}
+          </div>
+          <div style={{ fontSize:12, color:'#B0ABA4' }}>{d === 0 ? 'today' : `${d}d ago`}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Browse View ──────────────────────────────────────────────────────────────
+const BrowseView = () => {
+  const [rows, setRows]                 = useState(null); // null = loading
+  const [loadError, setLoadError]       = useState('');
+  const [roleFilter, setRoleFilter]     = useState('All roles');
+  const [indFilter, setIndFilter]       = useState('All industries');
+  const [typeFilter, setTypeFilter]     = useState('All company types');
+  const [cityFilter, setCityFilter]     = useState('All cities');
+
+  useEffect(() => {
+    if (!db) { setRows([]); return; }
+    db.from('submissions')
+      .select('*')
+      .eq('is_visible', true)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) { setLoadError(error.message); setRows([]); }
+        else setRows(data || []);
+      });
+  }, []);
+
+  const roleOptions = useMemo(() => {
+    if (!rows || !rows.length) return ['All roles'];
+    return ['All roles', ...[...new Set(rows.map(r => r.job_title))].sort()];
+  }, [rows]);
+
+  const filtered = (rows || []).filter(r =>
+    (roleFilter === 'All roles'          || r.job_title    === roleFilter) &&
+    (indFilter  === 'All industries'     || r.industry     === indFilter)  &&
+    (typeFilter === 'All company types'  || r.company_type === typeFilter) &&
+    (cityFilter === 'All cities'         || r.city         === cityFilter)
+  );
+
+  const selStyle = {
+    width:'100%', padding:'12px 18px', appearance:'none', WebkitAppearance:'none',
+    background:'#fff', border:'1.5px solid #E0DBD4', borderRadius:12,
+    fontFamily:'DM Sans', fontSize:14, color:'#1A1916', cursor:'pointer', outline:'none',
+  };
+
+  return (
+    <div style={{ maxWidth:900, margin:'0 auto', padding:'40px 24px 80px' }}>
+
+      {/* Stats */}
+      <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:32, flexWrap:'wrap' }}>
+        {rows && rows.length > 0 ? (
+          <span style={{ background:'#DFF0ED', color:'#2A7A6B', fontSize:13, fontWeight:500, padding:'5px 14px', borderRadius:999 }}>
+            {rows.length} submission{rows.length !== 1 ? 's' : ''}
+          </span>
+        ) : (
+          <span style={{ fontSize:13, fontWeight:500, color:'#6B6660' }}>Be one of the first to contribute</span>
+        )}
+        <span style={{ fontSize:13, color:'#9B9690' }}>
+          <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3A9D8A', marginRight:6, verticalAlign:'middle' }}/>
+          Fully anonymous · No login required
+        </span>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:10, marginBottom:32 }}>
+        {[
+          [roleFilter, setRoleFilter, roleOptions],
+          [indFilter,  setIndFilter,  INDUSTRIES],
+          [typeFilter, setTypeFilter, COMPANY_TYPES],
+          [cityFilter, setCityFilter, CITIES_FILTER],
+        ].map(([val, set, opts], i) => (
+          <div key={i} style={{ position:'relative' }}>
+            <select value={val} onChange={e => set(e.target.value)} style={selStyle}>
+              {opts.map(o => <option key={o}>{o}</option>)}
+            </select>
+            <Chevron/>
+          </div>
+        ))}
+      </div>
+
+      {/* Body */}
+      {rows === null ? (
+        <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4', fontSize:14 }}>Loading…</div>
+      ) : loadError ? (
+        <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4' }}>
+          <div style={{ fontFamily:'Playfair Display', fontSize:20, marginBottom:8 }}>Couldn&#39;t load data</div>
+          <div style={{ fontSize:13 }}>{loadError}</div>
+        </div>
+      ) : filtered.length > 0 ? (
+        <>
+          {filtered.length < rows.length && (
+            <div style={{ fontSize:13, color:'#9B9690', marginBottom:20 }}>
+              {filtered.length} result{filtered.length !== 1 ? 's' : ''} found
+            </div>
+          )}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
+            {filtered.map(r => <SalaryCard key={r.id} entry={r}/>)}
+          </div>
+        </>
+      ) : (
+        <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4' }}>
+          <div style={{ fontFamily:'Playfair Display', fontSize:24, marginBottom:8 }}>
+            {rows.length === 0 ? 'No submissions yet' : 'No results'}
+          </div>
+          <div style={{ fontSize:14 }}>
+            {rows.length === 0 ? 'Be the first to share your salary.' : 'Try adjusting your filters'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Submit View ──────────────────────────────────────────────────────────────
+const SubmitView = ({ showGate, onBrowse }) => {
+  const [form, setForm] = useState({
+    title:'', industry:'', industrySub:'', companyType:'', companySize:'',
+    experience:'', city:'', currency:'EGP', salaryType:'gross',
+    baseMin:'', baseMax:'',
+  });
+  const [submitted,  setSubmitted]  = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors,     setErrors]     = useState({});
+  const [apiError,   setApiError]   = useState('');
+
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v, ...(k === 'industry' ? { industrySub:'' } : {}) }));
+    setErrors(er => ({ ...er, [k]: false }));
+    setApiError('');
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!form.title.trim()) e.title = true;
+    if (!form.industry)     e.industry = true;
+    if (!form.companyType)  e.companyType = true;
+    if (!form.companySize)  e.companySize = true;
+    if (!form.experience)   e.experience = true;
+    if (!form.city)         e.city = true;
+    if (!form.baseMin)      e.baseMin = true;
+    if (!form.baseMax)      e.baseMax = true;
+    return e;
+  };
+
+  const handleSubmit = async (ev) => {
+    ev.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setSubmitting(true);
+
+    if (db) {
+      const { error } = await db.from('submissions').insert({
+        job_title:        form.title.trim(),
+        industry:         form.industry,
+        industry_sub:     form.industrySub || null,
+        company_type:     form.companyType,
+        company_size:     form.companySize,
+        years_experience: form.experience,
+        city:             form.city,
+        salary_min:       parseInt(form.baseMin, 10),
+        salary_max:       parseInt(form.baseMax, 10),
+        currency:         form.currency,
+        salary_type:      form.salaryType,
+      });
+      if (error) {
+        setApiError('Something went wrong. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    localStorage.setItem('cu_has_submitted', 'true');
+    setSubmitted(true);
+    setSubmitting(false);
+  };
+
+  const L = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
+  const inp = (err) => ({
+    width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
+    border: err ? '1.5px solid #E8826A' : '1.5px solid #E0DBD4',
+    background:'#fff', color:'#1A1916', outline:'none',
+  });
+
+  const Sel = ({ field, options, placeholder, disabled }) => (
+    <div style={{ position:'relative' }}>
+      <select value={form[field]} onChange={e=>set(field, e.target.value)} disabled={disabled} style={{
+        ...inp(errors[field]), appearance:'none', WebkitAppearance:'none',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        color: form[field] ? '#1A1916' : '#9B9690', opacity: disabled ? 0.5 : 1,
+      }}>
+        <option value="">{placeholder}</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <Chevron/>
+    </div>
+  );
+
+  const subs = INDUSTRY_SUBS[form.industry] || [];
+
+  if (submitted) return (
+    <div style={{ maxWidth:520, margin:'80px auto', padding:'0 24px', textAlign:'center' }}>
+      <div style={{ width:56, height:56, borderRadius:'50%', background:'#DFF0ED', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M5 13L9 17L19 7" stroke="#3A9D8A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <div style={{ fontFamily:'Playfair Display', fontSize:28, marginBottom:12 }}>Thank you.</div>
+      <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.7, marginBottom:36 }}>
+        Your submission is anonymous and has been added to the database. Every entry makes the next negotiation a little fairer.
+      </div>
+      <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
+        <Pill variant="filled" onClick={onBrowse} style={{ padding:'13px 28px', fontSize:15 }}>Browse the database →</Pill>
+        <Pill variant="ghost" onClick={() => setSubmitted(false)}>Submit another</Pill>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth:600, margin:'0 auto', padding:'40px 24px 80px' }}>
+
+      {showGate && (
+        <div style={{ background:'#1A1916', color:'#F4F2EF', borderRadius:16, padding:'20px 24px', marginBottom:36, lineHeight:1.7 }}>
+          <div style={{ fontWeight:500, marginBottom:6 }}>Browsing requires submitting first.</div>
+          <div style={{ fontSize:14, color:'#C8C4BC' }}>
+            One submission unlocks unlimited browsing. This keeps the data fed and protects the integrity of the database — only contributors see contributors&#39; data.
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom:32 }}>
+        <div style={{ fontFamily:'Playfair Display', fontSize:24, marginBottom:8 }}>Share your salary</div>
+        <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>Anonymous · takes under a minute · no account needed</div>
+      </div>
+
+      <div style={{ border:'1.5px solid #E0DBD4', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.65, marginBottom:28 }}>
+        <span style={{ fontWeight:500, color:'#6B6660' }}>Honest data only.</span>{' '}
+        Submit your current salary or a real offer you received. No estimates, no rumors, no friend-of-a-friend numbers. We&#39;d rather have 200 honest entries than 2,000 noisy ones.
+      </div>
+
+      <form onSubmit={handleSubmit} noValidate style={{ display:'flex', flexDirection:'column', gap:22 }}>
+
+        {/* Job title */}
+        <div>
+          <label style={L}>JOB TITLE</label>
+          <input value={form.title} onChange={e=>set('title',e.target.value)}
+            placeholder="e.g. Senior Product Manager" style={inp(errors.title)}/>
+          {errors.title && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+        </div>
+
+        {/* Industry + sub */}
+        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div>
+            <label style={L}>INDUSTRY</label>
+            <Sel field="industry" options={Object.keys(INDUSTRY_SUBS)} placeholder="Select industry"/>
+            {errors.industry && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          </div>
+          <div>
+            <label style={L}>SUB-CATEGORY</label>
+            <Sel field="industrySub" options={subs}
+              placeholder={form.industry ? 'Select sub-category' : 'Select industry first'}
+              disabled={!form.industry}/>
+          </div>
+        </div>
+
+        {/* Company type + size */}
+        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div>
+            <label style={L}>COMPANY TYPE</label>
+            <Sel field="companyType" options={["Multinational","Local","Startup"]} placeholder="Select type"/>
+            {errors.companyType && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          </div>
+          <div>
+            <label style={L}>COMPANY SIZE</label>
+            <Sel field="companySize" options={COMPANY_SIZES} placeholder="No. of employees"/>
+            {errors.companySize && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          </div>
+        </div>
+
+        {/* Experience + City */}
+        <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div>
+            <label style={L}>YEARS OF EXPERIENCE</label>
+            <Sel field="experience" options={EXP_RANGES} placeholder="Select range"/>
+            {errors.experience && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          </div>
+          <div>
+            <label style={L}>CITY</label>
+            <Sel field="city" options={CITIES_FORM} placeholder="Select city"/>
+            {errors.city && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+          </div>
+        </div>
+
+        {/* Base salary */}
+        <div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+            <label style={{...L, marginBottom:0}}>MONTHLY BASE SALARY</label>
+            {/* Gross / Net toggle */}
+            <div style={{ display:'flex', background:'#ECEAE5', borderRadius:999, padding:3, gap:2 }}>
+              {['gross','net'].map(t => (
+                <button key={t} type="button" onClick={() => set('salaryType', t)} style={{
+                  padding:'4px 12px', borderRadius:999, border:'none', cursor:'pointer',
+                  fontFamily:'DM Sans', fontSize:12, fontWeight:500, textTransform:'capitalize',
+                  background: form.salaryType === t ? '#fff' : 'transparent',
+                  color: form.salaryType === t ? '#1A1916' : '#9B9690',
+                  boxShadow: form.salaryType === t ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+                  transition:'all 0.15s',
+                }}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize:12, color:'#B0ABA4', marginBottom:10 }}>
+            Offers are usually gross. Your take-home is net.
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr auto', gap:10, alignItems:'center' }}>
+            <input type="number" value={form.baseMin} onChange={e=>set('baseMin',e.target.value)}
+              placeholder="Min" style={inp(errors.baseMin)}/>
+            <span style={{ color:'#9B9690', fontSize:14 }}>—</span>
+            <input type="number" value={form.baseMax} onChange={e=>set('baseMax',e.target.value)}
+              placeholder="Max" style={inp(errors.baseMax)}/>
+            <div style={{ position:'relative', minWidth:120 }}>
+              <select value={form.currency} onChange={e=>set('currency',e.target.value)} style={{
+                ...inp(false), minWidth:120, cursor:'pointer', appearance:'none', WebkitAppearance:'none',
+              }}>
+                <option>EGP</option>
+                <option>USD-pegged</option>
+              </select>
+              <Chevron/>
+            </div>
+          </div>
+          {(errors.baseMin || errors.baseMax) && (
+            <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Min and max are required</div>
+          )}
+        </div>
+
+        {/* Privacy note */}
+        <div style={{ background:'#F7F5F2', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.6 }}>
+          Your submission is fully anonymous. We don&#39;t collect your name, email, or IP address. Nothing links this entry back to you.
+        </div>
+
+        {/* Pre-submit copy */}
+        <p style={{ fontSize:13, color:'#9B9690', lineHeight:1.6 }}>
+          Only submit your current net salary or a real offer you received. No estimates, no guesses.
+        </p>
+
+        {apiError && (
+          <div style={{ fontSize:13, color:'#E8826A', padding:'12px 16px', background:'#FEF4F1', borderRadius:10 }}>
+            {apiError}
+          </div>
+        )}
+
+        <Pill type="submit" variant="filled"
+          style={{ alignSelf:'flex-start', padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
+          {submitting ? 'Submitting…' : 'Submit anonymously'}
+        </Pill>
+      </form>
+    </div>
+  );
+};
+
+// ─── Calculator View ──────────────────────────────────────────────────────────
+const CalculatorView = ({ onGoSubmit }) => {
+  const [gross,  setGross]  = useState('');
+  const [result, setResult] = useState(null);
+
+  const handleCalc = (ev) => {
+    ev.preventDefault();
+    const g = parseFloat(gross);
+    if (!g || g <= 0) return;
+    setResult(calcTakeHome(g));
+  };
+
+  const DeductionRow = ({ label, value }) => (
+    <div style={{ display:'flex', justifyContent:'space-between', padding:'9px 0', borderBottom:'1px solid #F2EFE9', fontSize:14, color:'#6B6660' }}>
+      <span>{label}</span>
+      <span style={{ fontVariantNumeric:'tabular-nums' }}>− {fmt(value)} EGP</span>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth:520, margin:'0 auto', padding:'40px 24px 80px' }}>
+
+      <div style={{ marginBottom:32 }}>
+        <div style={{ fontFamily:'Playfair Display', fontSize:24, marginBottom:8 }}>Take-home calculator</div>
+        <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>
+          Egypt 2025/2026 · Official tax brackets · No account needed
+        </div>
+      </div>
+
+      <form onSubmit={handleCalc}>
+        <label style={{ fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 }}>
+          MONTHLY GROSS SALARY (EGP)
+        </label>
+        <div style={{ display:'flex', gap:10, marginBottom: result ? 32 : 0 }}>
+          <input
+            type="number" value={gross}
+            onChange={e => { setGross(e.target.value); setResult(null); }}
+            placeholder="e.g. 30,000"
+            style={{
+              flex:1, padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
+              border:'1.5px solid #E0DBD4', background:'#fff', color:'#1A1916', outline:'none',
+            }}
+          />
+          <Pill type="submit" variant="filled" style={{ padding:'13px 24px', flexShrink:0 }}>
+            Calculate
+          </Pill>
+        </div>
+      </form>
+
+      {result && (
+        <>
+          {/* Breakdown card */}
+          <div style={{ background:'#fff', borderRadius:20, padding:'24px', border:'1.5px solid #E8E4DE', marginBottom:12 }}>
+            {/* Gross */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', paddingBottom:14, marginBottom:4, borderBottom:'1.5px solid #EEEAE4' }}>
+              <span style={{ fontSize:14, fontWeight:500 }}>Gross salary</span>
+              <span style={{ fontFamily:'Playfair Display', fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>
+                {fmt(result.gross)} EGP
+              </span>
+            </div>
+
+            {/* Deductions */}
+            <DeductionRow label="Social insurance (11%, cap 14,500 EGP)" value={result.si}/>
+            <DeductionRow label="Health insurance (1%)"                   value={result.hi}/>
+            <DeductionRow label="Income tax"                               value={result.incomeTax}/>
+
+            {/* Net */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', paddingTop:16, marginTop:2 }}>
+              <span style={{ fontSize:16, fontWeight:500 }}>Net take-home</span>
+              <span style={{ fontFamily:'Playfair Display', fontSize:28, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em' }}>
+                {fmt(result.net)} EGP
+              </span>
+            </div>
+          </div>
+
+          <div style={{ fontSize:12, color:'#B0ABA4', lineHeight:1.55, marginBottom:28 }}>
+            Estimate only. Actual deductions depend on your specific situation and employer and may vary.
+          </div>
+
+          {/* CTA */}
+          <div style={{ background:'#F7F5F2', borderRadius:16, padding:'20px 24px' }}>
+            <div style={{ fontSize:15, fontWeight:500, marginBottom:6, color:'#1A1916' }}>
+              Now you know your number.
+            </div>
+            <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.65, marginBottom:16 }}>
+              Add it to the database so the next person does too.
+            </div>
+            <Pill variant="filled" onClick={onGoSubmit} style={{ padding:'11px 24px' }}>
+              Share your salary →
+            </Pill>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── Utility Shell ────────────────────────────────────────────────────────────
+const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
+  const [activeTab, setActiveTab] = useState(initialTab || 'submit');
+  const [gated,     setGated]     = useState(initialGate || false);
+
+  const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
+
+  const switchTab = (key) => {
+    if (key === 'calculate') {
+      setActiveTab('calculate'); setGated(false); return;
+    }
+    if (key === 'browse' && !hasSubmitted()) {
+      setActiveTab('submit'); setGated(true);
+    } else {
+      setActiveTab(key); setGated(false);
+    }
+  };
+
+  const onBrowseUnlocked = () => { setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
+  const onGoSubmit       = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+
+  const TABS = [
+    ['browse',    'Browse salaries'],
+    ['submit',    'Submit yours'],
+    ['calculate', 'Calculate'],
+  ];
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#F4F2EF' }}>
+      <nav style={{
+        position:'sticky', top:0, zIndex:100,
+        background:'rgba(244,242,239,0.92)', backdropFilter:'blur(12px)',
+        borderBottom:'1px solid #E8E4DE',
+        padding:'0 32px',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        height:64,
+      }}>
+        <Logo onClick={onGoHome}/>
+        <div style={{ display:'flex', alignItems:'center', gap:2, background:'#ECEAE5', borderRadius:999, padding:4 }}>
+          {TABS.map(([key, label]) => (
+            <button key={key} onClick={() => switchTab(key)} style={{
+              padding:'8px 18px', borderRadius:999, border:'none', cursor:'pointer',
+              fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
+              background: activeTab === key ? '#fff' : 'transparent',
+              color: activeTab === key ? '#1A1916' : '#8A8580',
+              boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+            }}>{label}</button>
+          ))}
+        </div>
+        <div style={{ width:120 }}/>
+      </nav>
+
+      {activeTab === 'browse'    && <BrowseView/>}
+      {activeTab === 'submit'    && <SubmitView showGate={gated} onBrowse={onBrowseUnlocked}/>}
+      {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit}/>}
+    </div>
+  );
+};
+
+// ─── Landing Page ─────────────────────────────────────────────────────────────
+const LandingPage = ({ onEnter }) => {
+  const [heroVisible, setHeroVisible] = useState(false);
+  const [navDark,     setNavDark]     = useState(false);
+  const darkRef                       = useRef(null);
+
+  useEffect(() => { setTimeout(() => setHeroVisible(true), 80); }, []);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      ([entry]) => setNavDark(entry.isIntersecting),
+      { threshold:0, rootMargin:'-64px 0px 0px 0px' }
+    );
+    if (darkRef.current) obs.observe(darkRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  return (
+    <div style={{ background:'#F4F2EF', minHeight:'100vh' }}>
+
+      {/* Nav */}
+      <nav className="lp-nav" style={{
+        position:'fixed', top:0, left:0, right:0, zIndex:100,
+        padding:'20px 48px',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        transition:'background 0.3s ease',
+        background: navDark ? 'rgba(26,25,22,0.85)' : 'transparent',
+        backdropFilter: navDark ? 'blur(12px)' : 'none',
+      }}>
+        <Logo style={{ color: navDark ? '#F4F2EF' : '#1A1916', transition:'color 0.3s' }}/>
+        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+          {/* Calculate — text link */}
+          <button onClick={() => onEnter('calculate')} style={{
+            background:'transparent', border:'none', cursor:'pointer', fontFamily:'DM Sans',
+            fontSize:14, padding:'10px 14px', borderRadius:999, transition:'color 0.2s',
+            color: navDark ? 'rgba(255,255,255,0.6)' : '#6B6660',
+          }}
+          onMouseEnter={e => e.currentTarget.style.color = navDark ? '#F4F2EF' : '#1A1916'}
+          onMouseLeave={e => e.currentTarget.style.color = navDark ? 'rgba(255,255,255,0.6)' : '#6B6660'}
+          >Calculate</button>
+
+          {/* Browse — ghost button */}
+          <button onClick={() => onEnter('browse')} style={{
+            padding:'10px 22px', borderRadius:999, fontSize:14, fontWeight:500,
+            cursor:'pointer', fontFamily:'DM Sans', outline:'none', transition:'all 0.25s ease',
+            background: navDark ? 'rgba(255,255,255,0.12)' : 'transparent',
+            color: navDark ? '#F4F2EF' : '#1A1916',
+            border:'1.5px solid',
+            borderColor: navDark ? 'rgba(255,255,255,0.25)' : '#C8C4BC',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = navDark ? 'rgba(255,255,255,0.2)' : '#EEEAE4'}
+          onMouseLeave={e => e.currentTarget.style.background = navDark ? 'rgba(255,255,255,0.12)' : 'transparent'}
+          >Browse salaries</button>
+
+          <Pill variant="filled" onClick={() => onEnter('submit')}>Submit yours</Pill>
+        </div>
+      </nav>
+
+      {/* ── Hero ── */}
+      <section className="lp-hero" style={{
+        minHeight:'100vh', display:'flex', flexDirection:'column',
+        justifyContent:'center', padding:'0 48px',
+        maxWidth:1100, margin:'0 auto',
+      }}>
+        <div style={{
+          opacity: heroVisible ? 1 : 0,
+          transform: heroVisible ? 'none' : 'translateY(24px)',
+          transition:'opacity 0.7s ease, transform 0.7s ease',
+        }}>
+          <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', marginBottom:32, textTransform:'uppercase' }}>
+            Egyptian salaries, in the open
+          </div>
+          <h1 style={{
+            fontFamily:'Playfair Display',
+            fontSize:'clamp(56px, 8vw, 112px)',
+            fontWeight:500, lineHeight:1.05, letterSpacing:'-0.03em',
+            marginBottom:36, maxWidth:820,
+          }}>
+            Stop negotiating<br/>
+            in the <em style={{ fontStyle:'italic', color:'#3A9D8A' }}>dark.</em>
+          </h1>
+          <p style={{ fontSize:'clamp(16px, 1.8vw, 20px)', color:'#6B6660', lineHeight:1.75, maxWidth:520, marginBottom:48 }}>
+            A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
+          </p>
+          <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
+            <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Submit yours</Pill>
+            <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'14px 32px', fontSize:16 }}>Browse salaries →</Pill>
+          </div>
+          <div style={{ marginTop:48, fontSize:13, color:'#B0ABA4', display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
+            <span>No account needed</span>
+            <span>·</span>
+            <span>Fully anonymous</span>
+            <span>·</span>
+            <button onClick={() => onEnter('calculate')} style={{
+              background:'none', border:'none', cursor:'pointer', fontFamily:'DM Sans',
+              fontSize:13, color:'#3A9D8A', padding:0, fontWeight:500,
+            }}>
+              Calculate your take-home →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Data preview ── */}
+      <section className="lp-sec" style={{ padding:'0 48px 120px', overflow:'hidden' }}>
+        <div style={{ maxWidth:900, margin:'0 auto' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:32, flexWrap:'wrap', gap:12 }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', textTransform:'uppercase', marginBottom:10 }}>
+                In the database right now
+              </div>
+              <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(28px, 3vw, 38px)', fontWeight:500, letterSpacing:'-0.02em' }}>
+                Real salaries. Real jobs.
+              </div>
+            </div>
+            <button onClick={() => onEnter('browse')} style={{ background:'transparent', border:'none', cursor:'pointer', fontFamily:'DM Sans', fontSize:14, color:'#3A9D8A', fontWeight:500, padding:0 }}>
+              See all →
+            </button>
+          </div>
+
+          <div style={{ position:'relative' }}>
+            <div className="three-col" style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:14 }}>
+              {[
+                { role:"Software Engineer",  city:"Cairo",      type:"Startup",       exp:"3–5 yrs",  min:"25,000", max:"35,000" },
+                { role:"Product Manager",    city:"Cairo",      type:"Multinational", exp:"5–7 yrs",  min:"45,000", max:"60,000" },
+                { role:"UX Designer",        city:"Cairo",      type:"Local",         exp:"2–4 yrs",  min:"18,000", max:"26,000" },
+                { role:"Data Analyst",       city:"Cairo",      type:"Local",         exp:"1–3 yrs",  min:"14,000", max:"20,000" },
+                { role:"Marketing Manager",  city:"Alexandria", type:"Multinational", exp:"5–7 yrs",  min:"30,000", max:"42,000" },
+                { role:"Backend Engineer",   city:"Remote",     type:"Startup",       exp:"3–5 yrs",  min:"40,000", max:"55,000" },
+              ].map((e, i) => (
+                <div key={i} style={{ background:'#fff', borderRadius:20, padding:'20px 22px', border:'1.5px solid #E8E4DE', display:'flex', flexDirection:'column', gap:12 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                    <div style={{ fontFamily:'Playfair Display', fontSize:15, fontWeight:500, lineHeight:1.3 }}>{e.role}</div>
+                    <Tag>{e.city}</Tag>
+                  </div>
+                  <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                    <Tag>{e.type}</Tag><Tag>{e.exp}</Tag>
+                  </div>
+                  <div style={{ borderTop:'1px solid #EEEAE4', paddingTop:12 }}>
+                    <div style={{ fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#9B9690', marginBottom:3 }}>MONTHLY · EGP</div>
+                    <div style={{ fontFamily:'Playfair Display', fontSize:19, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em' }}>{e.min} – {e.max}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ position:'absolute', bottom:0, left:0, right:0, height:180, background:'linear-gradient(to bottom, transparent, #F4F2EF)', pointerEvents:'none' }}/>
+          </div>
+
+          <div style={{ marginTop:32, display:'flex', flexDirection:'column', alignItems:'center', gap:16, textAlign:'center' }}>
+            <div style={{ fontSize:15, color:'#6B6660' }}>Every salary you see here was shared by someone like you.</div>
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
+              <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'13px 28px', fontSize:15 }}>Add yours to the pool</Pill>
+              <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'13px 28px', fontSize:15 }}>Browse all salaries</Pill>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Why ── */}
+      <section ref={darkRef} style={{ background:'#1A1916', color:'#F4F2EF', padding:'120px 48px' }}>
+        <div className="two-col" style={{ maxWidth:900, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:80, alignItems:'center' }}>
+          <div>
+            <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(36px, 4vw, 52px)', fontWeight:500, lineHeight:1.2, letterSpacing:'-0.02em' }}>
+              Salary secrecy<br/>hurts everyone<br/>
+              <em style={{ color:'#3A9D8A', fontStyle:'italic' }}>except the employer.</em>
+            </div>
+          </div>
+          <div>
+            <p style={{ fontSize:17, lineHeight:1.85, color:'#C8C4BC', marginBottom:28 }}>
+              In Egypt, talking about your salary is still taboo. Which means every negotiation happens with incomplete information — on your side. Companies know the market. You don&#39;t.
+            </p>
+            <p style={{ fontSize:17, lineHeight:1.85, color:'#C8C4BC' }}>
+              Cleared Up is the other side of that equation. Real numbers, shared anonymously, compounding over time. The more people contribute, the more accurate and useful it becomes for everyone.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── How it works ── */}
+      <section className="lp-sec" style={{ padding:'120px 48px' }}>
+        <div style={{ maxWidth:900, margin:'0 auto' }}>
+          <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', textTransform:'uppercase', marginBottom:20 }}>How it works</div>
+          <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(32px, 3.5vw, 44px)', fontWeight:500, marginBottom:72, letterSpacing:'-0.02em', maxWidth:480 }}>
+            Three steps,<br/>under a minute.
+          </div>
+          <div className="three-col" style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:48 }}>
+            {[
+              {
+                n:'01', title:'Share your number',
+                body:'Fill in your job title, company type, city, and salary band. No name, no email, no account. Takes under a minute.',
+              },
+              {
+                n:'02', title:'Unlock the database',
+                body:'One submission unlocks unlimited browsing. Only contributors see contributors\u2019 data \u2014 that\u2019s how the pool stays honest.',
+              },
+              {
+                n:'03', title:'Help the next person',
+                body:'Every submission makes the database more accurate. The more people share, the fairer the market becomes for everyone.',
+              },
+            ].map(s => (
+              <div key={s.n}>
+                <div style={{ fontFamily:'Playfair Display', fontSize:48, fontWeight:400, color:'#E0DBD4', lineHeight:1, marginBottom:20 }}>{s.n}</div>
+                <div style={{ fontSize:18, fontWeight:500, marginBottom:12, letterSpacing:'-0.01em' }}>{s.title}</div>
+                <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.75 }}>{s.body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Final CTA ── */}
+      <section style={{ background:'#3A9D8A', padding:'100px 48px', textAlign:'center' }}>
+        <div style={{ maxWidth:640, margin:'0 auto' }}>
+          <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(36px, 4vw, 52px)', fontWeight:500, color:'#fff', lineHeight:1.2, letterSpacing:'-0.02em', marginBottom:20 }}>
+            Know your worth.<br/>Share the knowledge.
+          </div>
+          <p style={{ fontSize:16, color:'rgba(255,255,255,0.75)', lineHeight:1.7, marginBottom:40 }}>
+            Join the professionals making Egypt&#39;s job market more transparent, one salary at a time.
+          </p>
+          <div style={{ display:'flex', gap:14, justifyContent:'center', flexWrap:'wrap' }}>
+            <button onClick={() => onEnter('submit')} style={{
+              padding:'14px 32px', borderRadius:999, border:'none', cursor:'pointer',
+              background:'#fff', color:'#1A1916', fontSize:16, fontWeight:500,
+              fontFamily:'DM Sans', transition:'opacity 0.18s',
+            }}
+            onMouseEnter={e=>e.currentTarget.style.opacity='0.9'}
+            onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+              Submit yours
+            </button>
+            <button onClick={() => onEnter('browse')} style={{
+              padding:'14px 32px', borderRadius:999, cursor:'pointer', fontSize:16, fontWeight:500,
+              background:'transparent', color:'#fff', border:'1.5px solid rgba(255,255,255,0.5)',
+              fontFamily:'DM Sans', transition:'border-color 0.18s',
+            }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.9)'}
+            onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.5)'}>
+              Browse salaries →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer style={{ padding:'32px 48px', display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid #E8E4DE', flexWrap:'wrap', gap:12 }}>
+        <Logo/>
+        <div style={{ fontSize:13, color:'#B0ABA4' }}>Built for Egyptian professionals. Always anonymous.</div>
+      </footer>
+    </div>
+  );
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+const App = () => {
+  const [view,     setView]     = useState('landing');
+  const [tab,      setTab]      = useState('submit');
+  const [showGate, setShowGate] = useState(false);
+
+  const goToUtility = (t) => {
+    if (t === 'calculate') {
+      setTab('calculate'); setShowGate(false); setView('utility');
+      window.scrollTo(0, 0); return;
+    }
+    const sub = localStorage.getItem('cu_has_submitted') === 'true';
+    const dest = (t === 'browse' && !sub) ? 'submit' : t;
+    setTab(dest);
+    setShowGate(t === 'browse' && !sub);
+    setView('utility');
+    window.scrollTo(0, 0);
+  };
+
+  const goHome = () => { setView('landing'); window.scrollTo(0, 0); };
+
+  if (view === 'landing') return <LandingPage onEnter={goToUtility}/>;
+  return <UtilityShell onGoHome={goHome} initialTab={tab} initialGate={showGate}/>;
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
