@@ -866,9 +866,9 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
             <button key={key} className="shell-tab" onClick={() => switchTab(key)} style={{
               padding:'8px 18px', borderRadius:999, border:'none', cursor:'pointer',
               fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
-              background: (activeTab === key || key === 'submit') ? '#fff' : 'transparent',
-              color: (activeTab === key || key === 'submit') ? '#1A1916' : '#8A8580',
-              boxShadow: (activeTab === key || key === 'submit') ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+              background: activeTab === key ? '#fff' : 'transparent',
+              color: activeTab === key ? '#1A1916' : '#8A8580',
+              boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
             }}>
               <span className="tab-full">{label}</span>
               <span className="tab-short">{short}</span>
