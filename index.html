@@ -926,7 +926,7 @@ const PreviewCard = ({ entry: e }) => {
 const LandingPage = ({ onEnter }) => {
   const [heroVisible, setHeroVisible] = useState(false);
   const [navDark,     setNavDark]     = useState(false);
-  const [subCount,    setSubCount]    = useState(0);
+  const [subCount,    setSubCount]    = useState(null);
   const darkRef                       = useRef(null);
 
   useEffect(() => { setTimeout(() => setHeroVisible(true), 80); }, []);
@@ -942,12 +942,10 @@ const LandingPage = ({ onEnter }) => {
 
   useEffect(() => {
     if (!db) return;
-    const today = new Date().toISOString().split('T')[0];
     db.from('submissions')
       .select('*', { count:'exact', head:true })
       .eq('is_visible', true)
-      .gte('created_at', today)
-      .then(({ count }) => { if (count > 0) setSubCount(count); });
+      .then(({ count }) => { if (count != null) setSubCount(count); });
   }, []);
 
   return (
@@ -1028,6 +1026,12 @@ const LandingPage = ({ onEnter }) => {
             <span>·</span>
             <span>No login required</span>
             <span>·</span>
+            {subCount != null && (
+              <>
+                <span><span style={{ color:'#3A9D8A', fontWeight:500 }}>{subCount.toLocaleString()}</span> salaries submitted</span>
+                <span>·</span>
+              </>
+            )}
             <button onClick={() => onEnter('calculate')} style={{
               background:'none', border:'none', cursor:'pointer', fontFamily:'DM Sans',
               fontSize:13, color:'#3A9D8A', padding:0, fontWeight:500,
@@ -1035,22 +1039,8 @@ const LandingPage = ({ onEnter }) => {
               Calculate your take-home →
             </button>
           </div>
-          {subCount > 0 && (
-            <div style={{ marginTop:14, fontSize:13, color:'#B0ABA4' }}>
-              {subCount.toLocaleString()} professionals have shared their salary today.
-            </div>
-          )}
         </div>
       </section>
-
-      {/* ── Differentiator ── */}
-      <div style={{ padding:'0 48px' }}>
-        <div style={{ maxWidth:900, margin:'0 auto', borderTop:'1px solid #E8E4DE', padding:'20px 0', textAlign:'center' }}>
-          <span style={{ fontSize:12, color:'#B0ABA4', letterSpacing:'0.03em' }}>
-            Built for Egypt. Net salaries only. No login required.
-          </span>
-        </div>
-      </div>
 
       {/* ── Data preview ── */}
       <section className="lp-sec" style={{ padding:'0 48px 120px', overflow:'hidden' }}>
