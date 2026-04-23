@@ -26,12 +26,20 @@
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
+  .tab-short { display: none; }
   @media (max-width: 700px) {
-    .two-col   { grid-template-columns: 1fr !important; }
-    .three-col { grid-template-columns: 1fr !important; gap: 40px !important; }
-    .lp-nav    { padding: 16px 24px !important; }
-    .lp-hero   { padding: 0 24px !important; }
-    .lp-sec    { padding: 80px 24px !important; }
+    .two-col          { grid-template-columns: 1fr !important; }
+    .three-col        { grid-template-columns: 1fr !important; gap: 40px !important; }
+    .lp-nav           { padding: 16px 20px !important; }
+    .lp-hero          { padding: 0 20px !important; }
+    .lp-sec           { padding: 72px 20px !important; }
+    .lp-nav-secondary { display: none !important; }
+    .lp-footer        { padding: 24px 20px !important; }
+    .shell-nav        { padding: 0 16px !important; }
+    .shell-nav-spacer { display: none !important; }
+    .shell-tab        { padding: 7px 12px !important; font-size: 12px !important; }
+    .tab-full         { display: none !important; }
+    .tab-short        { display: inline !important; }
   }
 </style>
 </head>
@@ -692,14 +700,14 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
   const onGoSubmit       = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
 
   const TABS = [
-    ['browse',    'Browse salaries'],
-    ['submit',    'Submit yours'],
-    ['calculate', 'Calculate'],
+    ['browse',    'Browse salaries', 'Browse'],
+    ['submit',    'Submit yours',    'Submit'],
+    ['calculate', 'Calculate',       'Calculate'],
   ];
 
   return (
     <div style={{ minHeight:'100vh', background:'#F4F2EF' }}>
-      <nav style={{
+      <nav className="shell-nav" style={{
         position:'sticky', top:0, zIndex:100,
         background:'rgba(244,242,239,0.92)', backdropFilter:'blur(12px)',
         borderBottom:'1px solid #E8E4DE',
@@ -709,17 +717,20 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
       }}>
         <Logo onClick={onGoHome}/>
         <div style={{ display:'flex', alignItems:'center', gap:2, background:'#ECEAE5', borderRadius:999, padding:4 }}>
-          {TABS.map(([key, label]) => (
-            <button key={key} onClick={() => switchTab(key)} style={{
+          {TABS.map(([key, label, short]) => (
+            <button key={key} className="shell-tab" onClick={() => switchTab(key)} style={{
               padding:'8px 18px', borderRadius:999, border:'none', cursor:'pointer',
               fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
               background: activeTab === key ? '#fff' : 'transparent',
               color: activeTab === key ? '#1A1916' : '#8A8580',
               boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
-            }}>{label}</button>
+            }}>
+              <span className="tab-full">{label}</span>
+              <span className="tab-short">{short}</span>
+            </button>
           ))}
         </div>
-        <div style={{ width:120 }}/>
+        <div className="shell-nav-spacer" style={{ width:120 }}/>
       </nav>
 
       {activeTab === 'browse'    && <BrowseView/>}
@@ -761,7 +772,7 @@ const LandingPage = ({ onEnter }) => {
         <Logo style={{ color: navDark ? '#F4F2EF' : '#1A1916', transition:'color 0.3s' }}/>
         <div style={{ display:'flex', gap:10, alignItems:'center' }}>
           {/* Calculate — text link */}
-          <button onClick={() => onEnter('calculate')} style={{
+          <button className="lp-nav-secondary" onClick={() => onEnter('calculate')} style={{
             background:'transparent', border:'none', cursor:'pointer', fontFamily:'DM Sans',
             fontSize:14, padding:'10px 14px', borderRadius:999, transition:'color 0.2s',
             color: navDark ? 'rgba(255,255,255,0.6)' : '#6B6660',
@@ -771,7 +782,7 @@ const LandingPage = ({ onEnter }) => {
           >Calculate</button>
 
           {/* Browse — ghost button */}
-          <button onClick={() => onEnter('browse')} style={{
+          <button className="lp-nav-secondary" onClick={() => onEnter('browse')} style={{
             padding:'10px 22px', borderRadius:999, fontSize:14, fontWeight:500,
             cursor:'pointer', fontFamily:'DM Sans', outline:'none', transition:'all 0.25s ease',
             background: navDark ? 'rgba(255,255,255,0.12)' : 'transparent',
@@ -888,7 +899,7 @@ const LandingPage = ({ onEnter }) => {
       </section>
 
       {/* ── Why ── */}
-      <section ref={darkRef} style={{ background:'#1A1916', color:'#F4F2EF', padding:'120px 48px' }}>
+      <section ref={darkRef} className="lp-sec" style={{ background:'#1A1916', color:'#F4F2EF', padding:'120px 48px' }}>
         <div className="two-col" style={{ maxWidth:900, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:80, alignItems:'center' }}>
           <div>
             <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(36px, 4vw, 52px)', fontWeight:500, lineHeight:1.2, letterSpacing:'-0.02em' }}>
@@ -940,7 +951,7 @@ const LandingPage = ({ onEnter }) => {
       </section>
 
       {/* ── Final CTA ── */}
-      <section style={{ background:'#3A9D8A', padding:'100px 48px', textAlign:'center' }}>
+      <section className="lp-sec" style={{ background:'#3A9D8A', padding:'100px 48px', textAlign:'center' }}>
         <div style={{ maxWidth:640, margin:'0 auto' }}>
           <div style={{ fontFamily:'Playfair Display', fontSize:'clamp(36px, 4vw, 52px)', fontWeight:500, color:'#fff', lineHeight:1.2, letterSpacing:'-0.02em', marginBottom:20 }}>
             Know your worth.<br/>Share the knowledge.
@@ -972,7 +983,7 @@ const LandingPage = ({ onEnter }) => {
       </section>
 
       {/* Footer */}
-      <footer style={{ padding:'32px 48px', display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid #E8E4DE', flexWrap:'wrap', gap:12 }}>
+      <footer className="lp-footer" style={{ padding:'32px 48px', display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid #E8E4DE', flexWrap:'wrap', gap:12 }}>
         <Logo/>
         <div style={{ fontSize:13, color:'#B0ABA4' }}>Built for Egyptian professionals. Always anonymous.</div>
       </footer>
