@@ -333,6 +333,28 @@ const BrowseView = () => {
   );
 };
 
+// ─── Copy Link Button ─────────────────────────────────────────────────────────
+const CopyBtn = () => {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button onClick={copy} style={{
+      display:'inline-flex', alignItems:'center', gap:8,
+      padding:'10px 22px', borderRadius:999, border:'1.5px solid #D5D0C8',
+      background: copied ? '#DFF0ED' : 'transparent', cursor:'pointer',
+      fontFamily:'DM Sans', fontSize:13, fontWeight:500,
+      color: copied ? '#3A9D8A' : '#1A1916', transition:'all 0.18s',
+    }}>
+      {copied ? '✓ Copied!' : 'Copy link'}
+    </button>
+  );
+};
+
 // ─── Submit View ──────────────────────────────────────────────────────────────
 const SubmitView = ({ showGate, onBrowse }) => {
   const [form, setForm] = useState({
@@ -345,6 +367,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
   const [submitting, setSubmitting] = useState(false);
   const [errors,     setErrors]     = useState({});
   const [apiError,   setApiError]   = useState('');
+  const [benchmark,  setBenchmark]  = useState(null);
 
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v, ...(k === 'industry' ? { industrySub:'' } : {}) }));
@@ -379,6 +402,26 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
   const handleBack = () => { setStep(s => s - 1); setErrors({}); window.scrollTo(0, 0); };
 
+  const fetchBenchmark = async (title, city, baseMin, baseMax, salaryType) => {
+    const userMid = (parseInt(baseMin) + parseInt(baseMax)) / 2;
+    const userNet = salaryType === 'gross' ? calcTakeHome(userMid).net : userMid;
+    if (!db) { setBenchmark({ count: 0 }); return; }
+    const { data } = await db
+      .from('submissions')
+      .select('salary_min, salary_max')
+      .or('is_visible.eq.true,is_seeded.eq.true')
+      .ilike('job_title', title.trim());
+    const all = [...(data || []).map(r => (r.salary_min + r.salary_max) / 2), userNet]
+      .sort((a, b) => a - b);
+    const n = all.length;
+    if (n < 3) { setBenchmark({ count: n }); return; }
+    const below  = all.filter(s => s < userNet).length;
+    const topPct = 100 - Math.round(below / (n - 1) * 100);
+    const m      = Math.floor(n / 2);
+    const median = n % 2 === 1 ? all[m] : (all[m - 1] + all[m]) / 2;
+    setBenchmark({ count: n, topPct, median: Math.round(median), delta: Math.round(userNet - median) });
+  };
+
   const handleSubmit = async (ev) => {
     ev.preventDefault();
     const errs = validateStep(3);
@@ -409,6 +452,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
     localStorage.setItem('cu_has_submitted', 'true');
     setSubmitted(true);
     setSubmitting(false);
+    fetchBenchmark(form.title, form.city, form.baseMin, form.baseMax, form.salaryType);
   };
 
   const L   = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
@@ -443,23 +487,89 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
   const stepSubtitle = ['Your role and industry.', 'Your experience level.', 'Last step — your salary details.'][step - 1];
 
-  if (submitted) return (
-    <div style={{ maxWidth:520, margin:'80px auto', padding:'0 24px', textAlign:'center' }}>
-      <div style={{ width:56, height:56, borderRadius:'50%', background:'#DFF0ED', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px' }}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <path d="M5 13L9 17L19 7" stroke="#3A9D8A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+  if (submitted) {
+    const bm      = benchmark;
+    const hasData = bm && bm.count >= 3;
+    const isFirst = bm && bm.count < 3;
+    return (
+      <div style={{ maxWidth:520, margin:'60px auto', padding:'0 24px 80px' }}>
+
+        {/* Header */}
+        <div style={{ textAlign:'center', marginBottom:36 }}>
+          <div style={{ width:48, height:48, borderRadius:'50%', background:'#DFF0ED', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px' }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M5 13L9 17L19 7" stroke="#3A9D8A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div style={{ fontFamily:'Playfair Display', fontSize:26, marginBottom:10 }}>Submitted. Thank you.</div>
+          <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.7 }}>Every entry makes the next negotiation fairer.</div>
+        </div>
+
+        {/* Loading */}
+        {!bm && (
+          <div style={{ textAlign:'center', padding:'16px 0', fontSize:13, color:'#B0ABA4' }}>
+            Computing your benchmark…
+          </div>
+        )}
+
+        {/* < 3 comparable entries */}
+        {isFirst && (
+          <div style={{ textAlign:'center', padding:'12px 0 32px' }}>
+            <div style={{ fontFamily:'Playfair Display', fontSize:20, marginBottom:10 }}>
+              You're one of the first {form.title}s on Cleer.
+            </div>
+            <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.7 }}>
+              Your submission helps build the picture for everyone who comes next.
+            </div>
+          </div>
+        )}
+
+        {/* Full benchmark */}
+        {hasData && (<>
+
+          {/* Stats row */}
+          <div style={{ display:'flex', borderRadius:16, overflow:'hidden', border:'1.5px solid #E8E4DE', marginBottom:28 }}>
+            {[
+              { value:`Top ${bm.topPct}%`,                            sub:`of ${form.title}s`,  color:'#3A9D8A' },
+              { value:`${fmt(bm.median)} EGP`,                        sub:'median net salary',  color:'#1A1916' },
+              { value:`${bm.delta >= 0 ? '+' : ''}${fmt(bm.delta)}`, sub:'vs median',          color: bm.delta >= 0 ? '#3A9D8A' : '#E8826A' },
+            ].map((s, i) => (
+              <div key={i} style={{ flex:1, padding:'20px 12px', textAlign:'center', borderLeft: i > 0 ? '1.5px solid #E8E4DE' : 'none' }}>
+                <div style={{ fontFamily:'Playfair Display', fontSize:22, marginBottom:4, color:s.color }}>{s.value}</div>
+                <div style={{ fontSize:11, color:'#9B9690', letterSpacing:'0.02em' }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Shareable card */}
+          <div style={{ background:'#1A1916', borderRadius:16, padding:'36px 32px', color:'#F4F2EF', textAlign:'center', marginBottom:28 }}>
+            <div style={{ fontSize:11, letterSpacing:'0.10em', color:'#6B6660', textTransform:'uppercase', marginBottom:18 }}>My salary rank</div>
+            <div style={{ fontFamily:'Playfair Display', fontSize:26, fontWeight:500, lineHeight:1.3, marginBottom:20 }}>
+              Top {bm.topPct}% of {form.title}s<br/>in Egypt
+            </div>
+            <div style={{ width:32, height:1, background:'#333', margin:'0 auto 18px' }}/>
+            <div style={{ fontSize:12, color:'#555', letterSpacing:'0.08em' }}>Cleer</div>
+          </div>
+
+          {/* Invite */}
+          <div style={{ textAlign:'center', marginBottom:36 }}>
+            <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.7, marginBottom:14 }}>
+              Know someone in {form.title} in {form.city}? Send them this link.
+            </div>
+            <CopyBtn/>
+          </div>
+
+        </>)}
+
+        {/* Bottom actions */}
+        <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
+          <Pill variant="filled" onClick={onBrowse} style={{ padding:'13px 28px', fontSize:15 }}>Browse Salaries →</Pill>
+          <Pill variant="ghost" onClick={() => { setSubmitted(false); setStep(1); setBenchmark(null); }}>Submit another</Pill>
+        </div>
+
       </div>
-      <div style={{ fontFamily:'Playfair Display', fontSize:28, marginBottom:12 }}>Thank you.</div>
-      <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.7, marginBottom:36 }}>
-        Your submission is anonymous and has been added to the database. Every entry makes the next negotiation a little fairer.
-      </div>
-      <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
-        <Pill variant="filled" onClick={onBrowse} style={{ padding:'13px 28px', fontSize:15 }}>Browse the database →</Pill>
-        <Pill variant="ghost" onClick={() => { setSubmitted(false); setStep(1); }}>Submit another</Pill>
-      </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={{ maxWidth:600, margin:'0 auto', padding:'40px 24px 80px' }}>
