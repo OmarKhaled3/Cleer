@@ -561,24 +561,20 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
         {/* Group market comparison */}
         {hasData && (<>
 
-          {/* Insight */}
-          <div style={{ borderRadius:16, border:'1.5px solid #E8E4DE', padding:'24px', textAlign:'center', marginBottom:28 }}>
-            <div style={{ fontFamily:'Playfair Display', fontSize:32, marginBottom:8, color: bm.above ? '#3A9D8A' : '#E8826A' }}>
+          {/* Benchmark card — light, consistent with browse cards */}
+          <div style={{
+            background:'#fff', borderRadius:20, padding:'24px 28px',
+            border:'1.5px solid #E8E4DE', marginBottom:28, textAlign:'center',
+          }}>
+            <div style={{ fontSize:11, fontWeight:500, letterSpacing:'0.08em', color:'#9B9690', textTransform:'uppercase', marginBottom:16 }}>
+              Market comparison
+            </div>
+            <div style={{ fontFamily:'Playfair Display', fontSize:36, marginBottom:10, color: bm.above ? '#3A9D8A' : '#9B9690' }}>
               {bm.above ? '+' : '-'}{bm.pct}%
             </div>
             <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>
               You earn {bm.pct}% {bm.above ? 'more' : 'less'} than the market average for your role
             </div>
-          </div>
-
-          {/* Shareable card */}
-          <div style={{ background:'#1A1916', borderRadius:16, padding:'36px 32px', color:'#F4F2EF', textAlign:'center', marginBottom:28 }}>
-            <div style={{ fontSize:11, letterSpacing:'0.10em', color:'#6B6660', textTransform:'uppercase', marginBottom:18 }}>My salary benchmark</div>
-            <div style={{ fontFamily:'Playfair Display', fontSize:26, fontWeight:500, lineHeight:1.3, marginBottom:20 }}>
-              {bm.above ? '+' : '-'}{bm.pct}% vs the average<br/>{form.title} in Egypt
-            </div>
-            <div style={{ width:32, height:1, background:'#333', margin:'0 auto 18px' }}/>
-            <div style={{ fontSize:12, color:'#555', letterSpacing:'0.08em' }}>Cleer</div>
           </div>
 
           {/* Invite */}
@@ -595,13 +591,13 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
         {onGoCalculate && (
           <div style={{ textAlign:'center', borderTop:'1px solid #E8E4DE', paddingTop:28, marginBottom:28 }}>
             <div style={{ fontSize:14, color:'#6B6660', marginBottom:14 }}>
-              Want to know your exact take-home pay?
+              {form.salaryType === 'net' ? 'Want to know your gross salary?' : 'Want to know your exact take-home pay?'}
             </div>
             <Pill variant="ghost" onClick={() => {
               const mid = Math.round((parseInt(form.baseMin) + parseInt(form.baseMax)) / 2);
               onGoCalculate(form.salaryType === 'net' ? 'net-to-gross' : 'gross-to-net', mid);
             }}>
-              Calculate my net salary
+              {form.salaryType === 'net' ? 'Calculate my gross salary' : 'Calculate my net salary'}
             </Pill>
           </div>
         )}
