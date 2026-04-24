@@ -206,16 +206,17 @@ const Pill = ({ children, onClick, variant='outline', style, type='button' }) =>
 };
 
 // ─── Salary Card ──────────────────────────────────────────────────────────────
-const SalaryCard = ({ entry: e }) => {
+const SalaryCard = ({ entry: e, onClick }) => {
   const [hov, setHov] = useState(false);
   const d = daysAgo(e.created_at);
   return (
-    <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
+    <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
       background:'#fff', borderRadius:20, padding:'22px 24px',
       border: hov ? '1.5px solid #B8D8D4' : '1.5px solid #E8E4DE',
       transition:'border-color 0.18s, box-shadow 0.18s',
       boxShadow: hov ? '0 4px 24px rgba(58,157,138,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
       display:'flex', flexDirection:'column', gap:14,
+      cursor: onClick ? 'pointer' : 'default',
     }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
         <div style={{ fontFamily:'Playfair Display', fontSize:17, fontWeight:500, lineHeight:1.3 }}>{e.job_title}</div>
@@ -259,7 +260,7 @@ const SalaryCard = ({ entry: e }) => {
 };
 
 // ─── Browse View ──────────────────────────────────────────────────────────────
-const BrowseView = () => {
+const BrowseView = ({ onTitleClick }) => {
   const [rows, setRows]                 = useState(null); // null = loading
   const [loadError, setLoadError]       = useState('');
   const [roleFilter, setRoleFilter]     = useState('All roles');
@@ -364,7 +365,7 @@ const BrowseView = () => {
             </div>
           )}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
-            {grouped.map((g, i) => <SalaryCard key={i} entry={g}/>)}
+            {grouped.map((g, i) => <SalaryCard key={i} entry={g} onClick={onTitleClick ? () => onTitleClick({ job_title: g.job_title, industry: g.industry }) : undefined}/>)}
           </div>
         </>
       ) : (
@@ -377,6 +378,332 @@ const BrowseView = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ─── Distribution Bar ─────────────────────────────────────────────────────────
+const DistributionBar = ({ scaleMin, scaleMax, lowRange, typical, highRange, userValue, height = 10 }) => {
+  const range = scaleMax - scaleMin;
+  if (range <= 0) return null;
+  const pct  = v => `${Math.max(0, Math.min(100, ((v - scaleMin) / range) * 100))}%`;
+  const wPct = (a, b) => `${Math.max(0, Math.min(100, ((b - a) / range) * 100))}%`;
+  return (
+    <div style={{ position:'relative', height, background:'#E8E4DE', borderRadius:999 }}>
+      <div style={{
+        position:'absolute', top:0, bottom:0,
+        left: pct(lowRange), width: wPct(lowRange, highRange),
+        background:'#3A9D8A', borderRadius:999,
+      }}/>
+      <div style={{
+        position:'absolute', top:-3, bottom:-3,
+        left: pct(typical), transform:'translateX(-50%)',
+        width:3, background:'#1A1916', borderRadius:2,
+      }}/>
+      {userValue != null && (
+        <div style={{
+          position:'absolute', top:-5, bottom:-5,
+          left: pct(userValue), transform:'translateX(-50%)',
+          width:3, background:'#E8826A', borderRadius:2, zIndex:2,
+        }}/>
+      )}
+    </div>
+  );
+};
+
+// ─── Title Detail View ────────────────────────────────────────────────────────
+const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
+  const [rows,       setRows]       = useState(null);
+  const [userSalary, setUserSalary] = useState('');
+  const [activeTab,  setActiveTab]  = useState(null);
+
+  const { job_title, industry } = titleData;
+
+  useEffect(() => {
+    setRows(null); setUserSalary(''); setActiveTab(null);
+    if (!db) { setRows([]); return; }
+    db.from('submissions')
+      .select('*')
+      .or('is_visible.eq.true,is_seeded.eq.true')
+      .ilike('job_title', job_title.trim())
+      .then(({ data }) => setRows(data || []));
+  }, [job_title]);
+
+  const stats = useMemo(() => {
+    if (!rows || rows.length === 0) return null;
+    const mids = rows.map(r => {
+      const mid = (r.salary_min + r.salary_max) / 2;
+      return r.salary_type === 'gross' ? mid : calcGrossFromNet(mid).gross;
+    }).sort((a, b) => a - b);
+    const n   = mids.length;
+    const at  = p => mids[Math.min(n - 1, Math.floor(n * p))];
+    const newest = rows.reduce((a, b) => a.created_at > b.created_at ? a : b);
+    return {
+      typical:     at(0.5),
+      lowRange:    at(0.25),
+      highRange:   at(0.75),
+      min:         mids[0],
+      max:         mids[n - 1],
+      count:       n,
+      lastUpdated: newest.created_at,
+    };
+  }, [rows]);
+
+  const breakdowns = useMemo(() => {
+    if (!rows) return { city:[], companyType:[], experience:[] };
+    const build = keyFn => {
+      const groups = {};
+      rows.forEach(r => {
+        const key = keyFn(r);
+        if (!key) return;
+        if (!groups[key]) groups[key] = [];
+        const mid = (r.salary_min + r.salary_max) / 2;
+        groups[key].push(r.salary_type === 'gross' ? mid : calcGrossFromNet(mid).gross);
+      });
+      return Object.entries(groups)
+        .filter(([, vals]) => vals.length >= 5)
+        .map(([label, vals]) => {
+          vals.sort((a, b) => a - b);
+          const n  = vals.length;
+          const at = p => vals[Math.min(n - 1, Math.floor(n * p))];
+          return { label, count: n, typical: at(0.5), lowRange: at(0.25), highRange: at(0.75) };
+        })
+        .sort((a, b) => b.count - a.count);
+    };
+    return {
+      city:        build(r => r.city),
+      companyType: build(r => r.company_type),
+      experience:  build(r => r.years_experience),
+    };
+  }, [rows]);
+
+  const availableTabs = useMemo(() => {
+    const t = [];
+    if (breakdowns.city.length        >= 2) t.push({ key:'city',        label:'By City'        });
+    if (breakdowns.companyType.length >= 2) t.push({ key:'companyType', label:'By Company Type' });
+    if (breakdowns.experience.length  >= 2) t.push({ key:'experience',  label:'By Experience'   });
+    return t;
+  }, [breakdowns]);
+
+  useEffect(() => {
+    if (availableTabs.length > 0 && activeTab === null) setActiveTab(availableTabs[0].key);
+  }, [availableTabs, activeTab]);
+
+  const activeSegs = activeTab ? (breakdowns[activeTab] || []) : [];
+  const tabScale   = activeSegs.length ? {
+    min: Math.min(...activeSegs.map(s => s.lowRange))  * 0.85,
+    max: Math.max(...activeSegs.map(s => s.highRange)) * 1.15,
+  } : null;
+
+  const userGross  = parseFloat(userSalary) || 0;
+  const userResult = (userGross > 0 && stats) ? (() => {
+    const net    = calcTakeHome(userGross).net;
+    const typNet = calcTakeHome(stats.typical).net;
+    let label;
+    if      (userGross < stats.lowRange)    label = 'below the typical range';
+    else if (userGross < stats.typical)     label = 'in the lower half for this role';
+    else if (userGross <= stats.highRange)  label = 'in the upper half for this role';
+    else                                    label = 'among the top earners for this role';
+    return { net, typNet, label };
+  })() : null;
+
+  const barScaleMin = stats ? stats.min * 0.85 : 0;
+  const barScaleMax = stats ? stats.max * 1.15 : 1;
+
+  const fmtDate = ts => {
+    const d = daysAgo(ts);
+    if (d === 0) return 'today';
+    if (d < 30)  return `${d}d ago`;
+    return new Date(ts).toLocaleDateString('en-US', { month:'short', year:'numeric' });
+  };
+
+  const card = {
+    background:'#fff', borderRadius:20, padding:'28px 32px',
+    border:'1.5px solid #E8E4DE', boxShadow:'0 2px 12px rgba(0,0,0,0.04)',
+    marginBottom:16,
+  };
+
+  if (rows === null) return (
+    <div style={{ maxWidth:720, margin:'0 auto', padding:'40px 24px 80px', textAlign:'center', color:'#B0ABA4', fontSize:14 }}>
+      Loading…
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth:720, margin:'0 auto', padding:'40px 24px 80px' }}>
+
+      {/* ── Breadcrumb ── */}
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:28, fontSize:13, color:'#9B9690', flexWrap:'wrap' }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'DM Sans', fontSize:13, color:'#9B9690', padding:0, transition:'color 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.color='#3A9D8A'}
+          onMouseLeave={e => e.currentTarget.style.color='#9B9690'}>
+          Browse
+        </button>
+        <span>›</span>
+        <span>{industry}</span>
+        <span>›</span>
+        <span style={{ color:'#1A1916' }}>{job_title}</span>
+      </div>
+
+      {/* ── Hero ── */}
+      <div style={{ marginBottom:40 }}>
+        <h1 style={{ fontFamily:'Playfair Display', fontSize:'clamp(28px, 5vw, 44px)', fontWeight:500, letterSpacing:'-0.02em', lineHeight:1.15, marginBottom:20 }}>
+          {job_title}
+        </h1>
+        {stats && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
+            <span style={{ background:'#DFF0ED', color:'#2A7A6B', fontSize:13, fontWeight:500, padding:'5px 14px', borderRadius:999 }}>
+              Typical {fmt(stats.typical)} EGP/mo
+            </span>
+            <span style={{ color:'#D5D0C8' }}>·</span>
+            <span style={{ fontSize:13, color:'#6B6660' }}>{fmt(stats.min)}–{fmt(stats.max)} EGP range</span>
+            <span style={{ color:'#D5D0C8' }}>·</span>
+            <span style={{ fontSize:13, color:'#6B6660' }}>{stats.count} {stats.count === 1 ? 'salary' : 'salaries'}</span>
+            <span style={{ color:'#D5D0C8' }}>·</span>
+            <span style={{ fontSize:13, color:'#B0ABA4' }}>Updated {fmtDate(stats.lastUpdated)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Where do you stand? ── */}
+      {stats && (
+        <div style={card}>
+          <div style={{ fontSize:12, fontWeight:500, letterSpacing:'0.10em', color:'#9B9690', textTransform:'uppercase', marginBottom:16 }}>
+            Where do you stand?
+          </div>
+
+          <div style={{ marginBottom:24 }}>
+            <input
+              type="number"
+              value={userSalary}
+              onChange={e => setUserSalary(e.target.value)}
+              placeholder="Your gross monthly salary (EGP)"
+              style={{
+                width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
+                border:'1.5px solid #E0DBD4', background:'#F7F5F2', color:'#1A1916', outline:'none',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom:8 }}>
+            <DistributionBar
+              scaleMin={barScaleMin} scaleMax={barScaleMax}
+              lowRange={stats.lowRange} typical={stats.typical} highRange={stats.highRange}
+              userValue={userGross > 0 ? userGross : null}
+              height={12}
+            />
+            <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, color:'#9B9690' }}>
+              <span>Low range · {fmt(stats.lowRange)}</span>
+              <span>Typical · {fmt(stats.typical)}</span>
+              <span>High range · {fmt(stats.highRange)}</span>
+            </div>
+          </div>
+
+          <div style={{ fontSize:12, color:'#B0ABA4', lineHeight:1.65, marginTop:14, marginBottom: userResult ? 20 : 0 }}>
+            The teal band shows the common earning range. The dark line is the middle — half of reported salaries are above it, half are below.
+          </div>
+
+          {userResult && (
+            <div style={{ borderTop:'1px solid #E8E4DE', paddingTop:20, marginTop:4 }}>
+              <div style={{ fontSize:15, fontWeight:500, marginBottom:20 }}>
+                You're <span style={{ color:'#3A9D8A' }}>{userResult.label}</span>
+              </div>
+              <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <div style={{ background:'#F7F5F2', borderRadius:14, padding:'16px 18px' }}>
+                  <div style={{ fontSize:11, fontWeight:500, letterSpacing:'0.08em', color:'#9B9690', textTransform:'uppercase', marginBottom:6 }}>Your take-home</div>
+                  <div style={{ fontFamily:'Playfair Display', fontSize:22, fontWeight:500, letterSpacing:'-0.02em' }}>
+                    {fmt(userResult.net)} <span style={{ fontSize:13, fontWeight:400, color:'#9B9690' }}>EGP</span>
+                  </div>
+                  <div style={{ fontSize:12, color:'#B0ABA4', marginTop:4 }}>net / month</div>
+                </div>
+                <div style={{ background:'#F7F5F2', borderRadius:14, padding:'16px 18px' }}>
+                  <div style={{ fontSize:11, fontWeight:500, letterSpacing:'0.08em', color:'#9B9690', textTransform:'uppercase', marginBottom:6 }}>Typical take-home</div>
+                  <div style={{ fontFamily:'Playfair Display', fontSize:22, fontWeight:500, letterSpacing:'-0.02em', color:'#3A9D8A' }}>
+                    {fmt(userResult.typNet)} <span style={{ fontSize:13, fontWeight:400, color:'#9B9690' }}>EGP</span>
+                  </div>
+                  <div style={{ fontSize:12, color:'#B0ABA4', marginTop:4 }}>net / month</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Breakdown ── */}
+      {availableTabs.length > 0 && (
+        <div style={card}>
+          <div style={{ fontSize:12, fontWeight:500, letterSpacing:'0.10em', color:'#9B9690', textTransform:'uppercase', marginBottom:20 }}>
+            Breakdown
+          </div>
+
+          <div style={{ display:'flex', gap:4, marginBottom:28, background:'#F4F2EF', borderRadius:999, padding:4, width:'fit-content' }}>
+            {availableTabs.map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+                padding:'7px 16px', borderRadius:999, border:'none', cursor:'pointer',
+                fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
+                background: activeTab === t.key ? '#fff' : 'transparent',
+                color:      activeTab === t.key ? '#1A1916' : '#8A8580',
+                boxShadow:  activeTab === t.key ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+              }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tabScale && activeSegs.map((seg, i) => (
+            <div key={seg.label} style={{ marginBottom: i < activeSegs.length - 1 ? 28 : 0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10 }}>
+                <span style={{ fontSize:14, fontWeight:500 }}>{seg.label}</span>
+                <div style={{ display:'flex', gap:10, alignItems:'baseline' }}>
+                  <span style={{ fontFamily:'Playfair Display', fontSize:16, color:'#3A9D8A', letterSpacing:'-0.01em' }}>
+                    {fmt(seg.typical)} EGP
+                  </span>
+                  <span style={{ fontSize:11, color:'#9B9690' }}>{seg.count} salaries</span>
+                </div>
+              </div>
+              <DistributionBar
+                scaleMin={tabScale.min} scaleMax={tabScale.max}
+                lowRange={seg.lowRange} typical={seg.typical} highRange={seg.highRange}
+                height={8}
+              />
+              <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, fontSize:11, color:'#B0ABA4' }}>
+                <span>{fmt(seg.lowRange)}</span>
+                <span style={{ fontWeight:500, color:'#9B9690' }}>typical</span>
+                <span>{fmt(seg.highRange)}</span>
+              </div>
+            </div>
+          ))}
+
+          <div style={{ borderTop:'1px solid #E8E4DE', marginTop:24, paddingTop:14, fontSize:12, color:'#B0ABA4' }}>
+            Only segments with 5+ submissions are shown.
+          </div>
+        </div>
+      )}
+
+      {/* ── CTA ── */}
+      <div style={{ background:'#1A1916', borderRadius:20, padding:'32px', marginBottom:16 }}>
+        <div style={{ fontSize:15, color:'#F4F2EF', lineHeight:1.7, marginBottom:20 }}>
+          {stats && stats.count > 0
+            ? `${stats.count} ${stats.count === 1 ? 'person has' : 'people have'} shared their ${stats.count === 1 ? 'salary' : 'salaries'} for this role.`
+            : 'Be the first to share for this role.'
+          }{' '}
+          Add yours — it takes 60 seconds and is completely anonymous.
+        </div>
+        <button
+          onClick={onGoSubmit}
+          style={{ padding:'12px 24px', borderRadius:999, border:'none', cursor:'pointer', background:'#3A9D8A', color:'#fff', fontFamily:'DM Sans', fontSize:14, fontWeight:500, transition:'background 0.18s' }}
+          onMouseEnter={e => e.currentTarget.style.background='#2E8070'}
+          onMouseLeave={e => e.currentTarget.style.background='#3A9D8A'}
+        >
+          Share your salary →
+        </button>
+      </div>
+
+      {/* ── Trust signal ── */}
+      <div style={{ textAlign:'center', fontSize:12, color:'#B0ABA4', lineHeight:1.8 }}>
+        No name · No email · No company · Anonymous by design, not just policy.
+      </div>
+
     </div>
   );
 };
@@ -1011,13 +1338,15 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
 
 // ─── Utility Shell ────────────────────────────────────────────────────────────
 const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
-  const [activeTab, setActiveTab] = useState(initialTab || 'submit');
-  const [gated,      setGated]      = useState(initialGate || false);
+  const [activeTab,   setActiveTab]   = useState(initialTab || 'submit');
+  const [gated,       setGated]       = useState(initialGate || false);
   const [calcPrefill, setCalcPrefill] = useState(null);
+  const [detailTitle, setDetailTitle] = useState(null);
 
   const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
 
   const switchTab = (key) => {
+    setDetailTitle(null);
     if (key === 'calculate') {
       setCalcPrefill(null); setActiveTab('calculate'); setGated(false); return;
     }
@@ -1028,12 +1357,13 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
     }
   };
 
-  const onBrowseUnlocked        = () => { setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
-  const onGoSubmit               = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+  const onBrowseUnlocked        = () => { setDetailTitle(null); setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
+  const onGoSubmit               = () => { setDetailTitle(null); setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
   const onGoCalculateWithPrefill = (mode, value) => {
     setCalcPrefill({ mode, value: String(value) });
     setActiveTab('calculate'); setGated(false); window.scrollTo(0,0);
   };
+  const onTitleClick = (titleData) => { setDetailTitle(titleData); window.scrollTo(0,0); };
 
   const TABS = [
     ['browse',    'Browse salaries',               'Browse'],
@@ -1069,7 +1399,8 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
         <div className="shell-nav-spacer" style={{ width:120 }}/>
       </nav>
 
-      {activeTab === 'browse'    && <BrowseView/>}
+      {activeTab === 'browse' && !detailTitle && <BrowseView onTitleClick={onTitleClick}/>}
+      {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { setDetailTitle(null); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
       {activeTab === 'submit'    && <SubmitView showGate={gated} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
       {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
     </div>
