@@ -225,6 +225,9 @@ const SalaryCard = ({ entry: e }) => {
         <Tag>{e.industry}</Tag>
         {e.company_type && <Tag>{e.company_type}</Tag>}
         <Tag>{e.years_experience}</Tag>
+        {e.compensation_type && e.compensation_type !== 'Base salary only' && (
+          <Tag accent>{e.compensation_type}</Tag>
+        )}
         {e.count > 1 && (
           <span style={{ fontSize:11, color:'#9B9690', padding:'3px 8px', borderRadius:999, border:'1px solid #E0DBD4', lineHeight:1.4 }}>
             {e.count} salaries
@@ -282,7 +285,7 @@ const BrowseView = () => {
   const grouped = useMemo(() => {
     const map = {};
     filtered.forEach(r => {
-      const key = [r.job_title, r.industry, r.years_experience, r.city].join('\x00');
+      const key = [r.job_title, r.industry, r.years_experience, r.city, r.compensation_type || ''].join('\x00');
       if (!map[key]) {
         map[key] = { ...r, count: 1 };
       } else {
@@ -396,7 +399,7 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
     experience:'', city:'', currency:'EGP', salaryType:'gross',
-    baseMin:'', baseMax:'',
+    baseMin:'', baseMax:'', compensationType:'Base salary only',
   });
   const [step,       setStep]       = useState(1);
   const [submitted,  setSubmitted]  = useState(false);
@@ -474,10 +477,11 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
         company_size:     form.companySize,
         years_experience: form.experience,
         city:             form.city,
-        salary_min:       parseInt(form.baseMin, 10),
-        salary_max:       parseInt(form.baseMax, 10),
-        currency:         form.currency,
-        salary_type:      form.salaryType,
+        salary_min:        parseInt(form.baseMin, 10),
+        salary_max:        parseInt(form.baseMax, 10),
+        currency:          form.currency,
+        salary_type:       form.salaryType,
+        compensation_type: form.compensationType,
       });
       if (error) {
         setApiError('Something went wrong. Please try again.');
@@ -771,6 +775,22 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
             {(errors.baseMin || errors.baseMax) && (
               <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Min and max are required</div>
             )}
+          </div>
+
+          <div>
+            <label style={L}>COMPENSATION TYPE</label>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {['Base salary only', 'Base + commission', 'Base + bonus'].map(opt => (
+                <button key={opt} type="button" onClick={() => set('compensationType', opt)} style={{
+                  padding:'9px 16px', borderRadius:999, border:'1.5px solid',
+                  borderColor: form.compensationType === opt ? '#3A9D8A' : '#E0DBD4',
+                  background: form.compensationType === opt ? '#DFF0ED' : '#fff',
+                  color: form.compensationType === opt ? '#2A7A6B' : '#6B6660',
+                  fontFamily:'DM Sans', fontSize:13, fontWeight:500, cursor:'pointer',
+                  transition:'all 0.15s',
+                }}>{opt}</button>
+              ))}
+            </div>
           </div>
 
           <div style={{ background:'#F7F5F2', borderRadius:12, padding:'14px 16px', fontSize:13, color:'#8A8580', lineHeight:1.6 }}>
