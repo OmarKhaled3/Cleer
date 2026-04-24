@@ -225,9 +225,16 @@ const SalaryCard = ({ entry: e }) => {
         <Tag>{e.industry}</Tag>
         {e.company_type && <Tag>{e.company_type}</Tag>}
         <Tag>{e.years_experience}</Tag>
-        {e.compensation_type && e.compensation_type !== 'Base salary only' && (
-          <Tag accent>{e.compensation_type}</Tag>
-        )}
+        {(() => {
+          const COMP_LABELS = {
+            'base_plus_commission': 'Base + Commission',
+            'Base + commission':    'Base + Commission',
+            'base_plus_bonus':      'Base + Bonus',
+            'Base + bonus':         'Base + Bonus',
+          };
+          const label = COMP_LABELS[e.compensation_type];
+          return label ? <Tag accent>{label}</Tag> : null;
+        })()}
         {e.count > 1 && (
           <span style={{ fontSize:11, color:'#9B9690', padding:'3px 8px', borderRadius:999, border:'1px solid #E0DBD4', lineHeight:1.4 }}>
             {e.count} salaries
