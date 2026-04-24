@@ -223,8 +223,13 @@ const SalaryCard = ({ entry: e }) => {
       </div>
       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
         <Tag>{e.industry}</Tag>
-        <Tag>{e.company_type}</Tag>
+        {e.company_type && <Tag>{e.company_type}</Tag>}
         <Tag>{e.years_experience}</Tag>
+        {e.count > 1 && (
+          <span style={{ fontSize:11, color:'#9B9690', padding:'3px 8px', borderRadius:999, border:'1px solid #E0DBD4', lineHeight:1.4 }}>
+            {e.count} salaries
+          </span>
+        )}
       </div>
       <div style={{ borderTop:'1px solid #EEEAE4', paddingTop:14 }}>
         <div style={{ fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#9B9690', marginBottom:4 }}>
@@ -273,6 +278,22 @@ const BrowseView = () => {
     (typeFilter === 'All company types'  || r.company_type === typeFilter) &&
     (cityFilter === 'All cities'         || r.city         === cityFilter)
   );
+
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(r => {
+      const key = [r.job_title, r.industry, r.years_experience, r.city].join('\x00');
+      if (!map[key]) {
+        map[key] = { ...r, count: 1 };
+      } else {
+        map[key].salary_min = Math.min(map[key].salary_min, r.salary_min);
+        map[key].salary_max = Math.max(map[key].salary_max, r.salary_max);
+        map[key].count += 1;
+        if (r.created_at > map[key].created_at) map[key].created_at = r.created_at;
+      }
+    });
+    return Object.values(map);
+  }, [filtered]);
 
   const selStyle = {
     width:'100%', padding:'12px 18px', appearance:'none', WebkitAppearance:'none',
@@ -323,15 +344,15 @@ const BrowseView = () => {
           <div style={{ fontFamily:'Playfair Display', fontSize:20, marginBottom:8 }}>Couldn&#39;t load data</div>
           <div style={{ fontSize:13 }}>{loadError}</div>
         </div>
-      ) : filtered.length > 0 ? (
+      ) : grouped.length > 0 ? (
         <>
-          {filtered.length < rows.length && (
+          {grouped.length < rows.length && (
             <div style={{ fontSize:13, color:'#9B9690', marginBottom:20 }}>
-              {filtered.length} result{filtered.length !== 1 ? 's' : ''} found
+              {grouped.length} result{grouped.length !== 1 ? 's' : ''} found
             </div>
           )}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
-            {filtered.map(r => <SalaryCard key={r.id} entry={r}/>)}
+            {grouped.map((g, i) => <SalaryCard key={i} entry={g}/>)}
           </div>
         </>
       ) : (
@@ -417,7 +438,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
   const handleBack = () => { setStep(s => s - 1); setErrors({}); window.scrollTo(0, 0); };
 
-  const fetchBenchmark = async (title, city, baseMin, baseMax, salaryType) => {
+  const fetchBenchmark = async (title, city, industry, experience, baseMin, baseMax, salaryType) => {
     const userMid = (parseInt(baseMin) + parseInt(baseMax)) / 2;
     const userNet = salaryType === 'gross' ? calcTakeHome(userMid).net : userMid;
     if (!db) { setBenchmark({ count: 0 }); return; }
@@ -425,16 +446,17 @@ const SubmitView = ({ showGate, onBrowse }) => {
       .from('submissions')
       .select('salary_min, salary_max')
       .or('is_visible.eq.true,is_seeded.eq.true')
-      .ilike('job_title', title.trim());
-    const all = [...(data || []).map(r => (r.salary_min + r.salary_max) / 2), userNet]
-      .sort((a, b) => a - b);
-    const n = all.length;
-    if (n < 3) { setBenchmark({ count: n }); return; }
-    const below  = all.filter(s => s < userNet).length;
-    const topPct = 100 - Math.round(below / (n - 1) * 100);
-    const m      = Math.floor(n / 2);
-    const median = n % 2 === 1 ? all[m] : (all[m - 1] + all[m]) / 2;
-    setBenchmark({ count: n, topPct, median: Math.round(median), delta: Math.round(userNet - median) });
+      .ilike('job_title', title.trim())
+      .eq('industry', industry)
+      .eq('years_experience', experience)
+      .eq('city', city);
+    const peers = (data || []).map(r => (r.salary_min + r.salary_max) / 2);
+    const n = peers.length;
+    if (n === 0) { setBenchmark({ count: 0 }); return; }
+    const marketMid = peers.reduce((a, b) => a + b, 0) / n;
+    const pct   = Math.round(Math.abs(userNet - marketMid) / marketMid * 100);
+    const above = userNet >= marketMid;
+    setBenchmark({ count: n, pct, above, marketMid: Math.round(marketMid) });
   };
 
   const handleSubmit = async (ev) => {
@@ -467,7 +489,7 @@ const SubmitView = ({ showGate, onBrowse }) => {
     localStorage.setItem('cu_has_submitted', 'true');
     setSubmitted(true);
     setSubmitting(false);
-    fetchBenchmark(form.title, form.city, form.baseMin, form.baseMax, form.salaryType);
+    fetchBenchmark(form.title, form.city, form.industry, form.experience, form.baseMin, form.baseMax, form.salaryType);
   };
 
   const L   = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
@@ -504,8 +526,8 @@ const SubmitView = ({ showGate, onBrowse }) => {
 
   if (submitted) {
     const bm      = benchmark;
-    const hasData = bm && bm.count >= 3;
-    const isFirst = bm && bm.count < 3;
+    const hasData = bm && bm.count > 0;
+    const isFirst = bm && bm.count === 0;
     return (
       <div style={{ maxWidth:520, margin:'60px auto', padding:'0 24px 80px' }}>
 
@@ -527,40 +549,33 @@ const SubmitView = ({ showGate, onBrowse }) => {
           </div>
         )}
 
-        {/* < 3 comparable entries */}
+        {/* No peers in group yet */}
         {isFirst && (
           <div style={{ textAlign:'center', padding:'12px 0 32px' }}>
-            <div style={{ fontFamily:'Playfair Display', fontSize:20, marginBottom:10 }}>
-              You're one of the first {form.title}s on Cleer.
-            </div>
-            <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.7 }}>
-              Your submission helps build the picture for everyone who comes next.
+            <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.7 }}>
+              You're the first to share for this role — check back as more data comes in.
             </div>
           </div>
         )}
 
-        {/* Full benchmark */}
+        {/* Group market comparison */}
         {hasData && (<>
 
-          {/* Stats row */}
-          <div style={{ display:'flex', borderRadius:16, overflow:'hidden', border:'1.5px solid #E8E4DE', marginBottom:28 }}>
-            {[
-              { value:`Top ${bm.topPct}%`,                            sub:`of ${form.title}s`,  color:'#3A9D8A' },
-              { value:`${fmt(bm.median)} EGP`,                        sub:'median net salary',  color:'#1A1916' },
-              { value:`${bm.delta >= 0 ? '+' : ''}${fmt(bm.delta)}`, sub:'vs median',          color: bm.delta >= 0 ? '#3A9D8A' : '#E8826A' },
-            ].map((s, i) => (
-              <div key={i} style={{ flex:1, padding:'20px 12px', textAlign:'center', borderLeft: i > 0 ? '1.5px solid #E8E4DE' : 'none' }}>
-                <div style={{ fontFamily:'Playfair Display', fontSize:22, marginBottom:4, color:s.color }}>{s.value}</div>
-                <div style={{ fontSize:11, color:'#9B9690', letterSpacing:'0.02em' }}>{s.sub}</div>
-              </div>
-            ))}
+          {/* Insight */}
+          <div style={{ borderRadius:16, border:'1.5px solid #E8E4DE', padding:'24px', textAlign:'center', marginBottom:28 }}>
+            <div style={{ fontFamily:'Playfair Display', fontSize:32, marginBottom:8, color: bm.above ? '#3A9D8A' : '#E8826A' }}>
+              {bm.above ? '+' : '-'}{bm.pct}%
+            </div>
+            <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.6 }}>
+              You earn {bm.pct}% {bm.above ? 'more' : 'less'} than the market average for your role
+            </div>
           </div>
 
           {/* Shareable card */}
           <div style={{ background:'#1A1916', borderRadius:16, padding:'36px 32px', color:'#F4F2EF', textAlign:'center', marginBottom:28 }}>
-            <div style={{ fontSize:11, letterSpacing:'0.10em', color:'#6B6660', textTransform:'uppercase', marginBottom:18 }}>My salary rank</div>
+            <div style={{ fontSize:11, letterSpacing:'0.10em', color:'#6B6660', textTransform:'uppercase', marginBottom:18 }}>My salary benchmark</div>
             <div style={{ fontFamily:'Playfair Display', fontSize:26, fontWeight:500, lineHeight:1.3, marginBottom:20 }}>
-              Top {bm.topPct}% of {form.title}s<br/>in Egypt
+              {bm.above ? '+' : '-'}{bm.pct}% vs the average<br/>{form.title} in Egypt
             </div>
             <div style={{ width:32, height:1, background:'#333', margin:'0 auto 18px' }}/>
             <div style={{ fontSize:12, color:'#555', letterSpacing:'0.08em' }}>Cleer</div>
