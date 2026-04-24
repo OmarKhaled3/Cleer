@@ -392,7 +392,7 @@ const CopyBtn = () => {
 };
 
 // ─── Submit View ──────────────────────────────────────────────────────────────
-const SubmitView = ({ showGate, onBrowse }) => {
+const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
     experience:'', city:'', currency:'EGP', salaryType:'gross',
@@ -590,6 +590,21 @@ const SubmitView = ({ showGate, onBrowse }) => {
           </div>
 
         </>)}
+
+        {/* Calculate CTA */}
+        {onGoCalculate && (
+          <div style={{ textAlign:'center', borderTop:'1px solid #E8E4DE', paddingTop:28, marginBottom:28 }}>
+            <div style={{ fontSize:14, color:'#6B6660', marginBottom:14 }}>
+              Want to know your exact take-home pay?
+            </div>
+            <Pill variant="ghost" onClick={() => {
+              const mid = Math.round((parseInt(form.baseMin) + parseInt(form.baseMax)) / 2);
+              onGoCalculate(form.salaryType === 'net' ? 'net-to-gross' : 'gross-to-net', mid);
+            }}>
+              Calculate my net salary
+            </Pill>
+          </div>
+        )}
 
         {/* Bottom actions */}
         <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
@@ -790,14 +805,20 @@ const SubmitView = ({ showGate, onBrowse }) => {
 };
 
 // ─── Calculator View ──────────────────────────────────────────────────────────
-const CalculatorView = ({ onGoSubmit, onGoBrowse }) => {
-  const [mode,        setMode]        = useState('gross-to-net');
-  const [input,       setInput]       = useState('');
+const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', initialInput = '' }) => {
+  const [mode,        setMode]        = useState(initialMode);
+  const [input,       setInput]       = useState(initialInput);
   const [result,      setResult]      = useState(null);
   const [previewRows, setPreviewRows] = useState(null);
 
   const isNtG      = mode === 'net-to-gross';
   const submitted  = localStorage.getItem('cu_has_submitted') === 'true';
+
+  useEffect(() => {
+    if (!initialInput) return;
+    const v = parseFloat(initialInput);
+    if (v > 0) setResult(initialMode === 'net-to-gross' ? calcGrossFromNet(v) : calcTakeHome(v));
+  }, []);
 
   const handleCalc = (ev) => {
     ev.preventDefault();
@@ -966,13 +987,14 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse }) => {
 // ─── Utility Shell ────────────────────────────────────────────────────────────
 const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
   const [activeTab, setActiveTab] = useState(initialTab || 'submit');
-  const [gated,     setGated]     = useState(initialGate || false);
+  const [gated,      setGated]      = useState(initialGate || false);
+  const [calcPrefill, setCalcPrefill] = useState(null);
 
   const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
 
   const switchTab = (key) => {
     if (key === 'calculate') {
-      setActiveTab('calculate'); setGated(false); return;
+      setCalcPrefill(null); setActiveTab('calculate'); setGated(false); return;
     }
     if (key === 'browse' && !hasSubmitted()) {
       setActiveTab('submit'); setGated(true);
@@ -981,8 +1003,12 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
     }
   };
 
-  const onBrowseUnlocked = () => { setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
-  const onGoSubmit       = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+  const onBrowseUnlocked        = () => { setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
+  const onGoSubmit               = () => { setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+  const onGoCalculateWithPrefill = (mode, value) => {
+    setCalcPrefill({ mode, value: String(value) });
+    setActiveTab('calculate'); setGated(false); window.scrollTo(0,0);
+  };
 
   const TABS = [
     ['browse',    'Browse salaries',               'Browse'],
@@ -1019,8 +1045,8 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
       </nav>
 
       {activeTab === 'browse'    && <BrowseView/>}
-      {activeTab === 'submit'    && <SubmitView showGate={gated} onBrowse={onBrowseUnlocked}/>}
-      {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked}/>}
+      {activeTab === 'submit'    && <SubmitView showGate={gated} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
+      {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
     </div>
   );
 };
