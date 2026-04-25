@@ -431,10 +431,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
 
   const stats = useMemo(() => {
     if (!rows || rows.length === 0) return null;
-    const mids = rows.map(r => {
-      const mid = (r.salary_min + r.salary_max) / 2;
-      return r.salary_type === 'net' ? mid : calcTakeHome(mid).net;
-    }).sort((a, b) => a - b);
+    const mids = rows.map(r => (r.salary_min + r.salary_max) / 2).sort((a, b) => a - b);
     const n   = mids.length;
     const at  = p => mids[Math.min(n - 1, Math.floor(n * p))];
     const newest = rows.reduce((a, b) => a.created_at > b.created_at ? a : b);
@@ -458,7 +455,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
         if (!key) return;
         if (!groups[key]) groups[key] = [];
         const mid = (r.salary_min + r.salary_max) / 2;
-        groups[key].push(r.salary_type === 'net' ? mid : calcTakeHome(mid).net);
+        groups[key].push(mid);
       });
       return Object.entries(groups)
         .filter(([, vals]) => vals.length >= 5)
@@ -497,13 +494,14 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
 
   const userGross  = parseFloat(userSalary) || 0;
   const userResult = (userGross > 0 && stats) ? (() => {
-    const net = calcTakeHome(userGross).net;
+    const net    = calcTakeHome(userGross).net;
+    const typNet = calcTakeHome(stats.typical).net;
     let label;
-    if      (net < stats.lowRange)    label = 'below the typical range';
-    else if (net < stats.typical)     label = 'in the lower half for this role';
-    else if (net <= stats.highRange)  label = 'in the upper half for this role';
-    else                              label = 'among the top earners for this role';
-    return { net, typNet: stats.typical, label };
+    if      (userGross < stats.lowRange)    label = 'below the typical range';
+    else if (userGross < stats.typical)     label = 'in the lower half for this role';
+    else if (userGross <= stats.highRange)  label = 'in the upper half for this role';
+    else                                    label = 'among the top earners for this role';
+    return { net, typNet, label };
   })() : null;
 
   const barScaleMin = stats ? stats.min * 0.85 : 0;
@@ -588,7 +586,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
             <DistributionBar
               scaleMin={barScaleMin} scaleMax={barScaleMax}
               lowRange={stats.lowRange} typical={stats.typical} highRange={stats.highRange}
-              userValue={userResult ? userResult.net : null}
+              userValue={userGross > 0 ? userGross : null}
               height={12}
             />
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, color:'#9B9690' }}>
