@@ -56,6 +56,24 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo } = React;
 
+// ─── Routing helpers ──────────────────────────────────────────────────────────
+const pushRoute = (path) => window.history.pushState(null, '', path);
+
+function resolveRouteState() {
+  const path = window.location.pathname;
+  const sub  = localStorage.getItem('cu_has_submitted') === 'true';
+  if (path === '/calculate') return { view:'utility', tab:'calculate', gate:false };
+  if (path === '/submit')    return { view:'utility', tab:'submit',    gate:false };
+  if (path === '/browse') {
+    return sub
+      ? { view:'utility', tab:'browse', gate:false }
+      : { view:'utility', tab:'submit', gate:true };
+  }
+  return sub
+    ? { view:'utility', tab:'browse', gate:false }
+    : { view:'landing', tab:'submit', gate:false };
+}
+
 // ─── Supabase client ──────────────────────────────────────────────────────────
 //  Replace both values with your Supabase project URL and anon key,
 //  found in: Project Settings → API.
@@ -1363,23 +1381,41 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
 
   const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
 
+  useEffect(() => {
+    const handlePop = () => {
+      const path = window.location.pathname;
+      const sub  = localStorage.getItem('cu_has_submitted') === 'true';
+      setDetailTitle(null);
+      setCalcPrefill(null);
+      if (path === '/calculate') { setActiveTab('calculate'); setGated(false); return; }
+      if (path === '/submit')    { setActiveTab('submit');    setGated(false); return; }
+      if (!sub) { setActiveTab('submit'); setGated(true); }
+      else      { setActiveTab('browse'); setGated(false); }
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
+
   const switchTab = (key) => {
     setDetailTitle(null);
     if (key === 'calculate') {
-      setCalcPrefill(null); setActiveTab('calculate'); setGated(false); return;
+      setCalcPrefill(null); setActiveTab('calculate'); setGated(false);
+      pushRoute('/calculate'); return;
     }
     if (key === 'browse' && !hasSubmitted()) {
       setActiveTab('submit'); setGated(true);
+      pushRoute('/submit');
     } else {
       setActiveTab(key); setGated(false);
+      pushRoute('/' + key);
     }
   };
 
-  const onBrowseUnlocked        = () => { setDetailTitle(null); setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
-  const onGoSubmit               = () => { setDetailTitle(null); setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+  const onBrowseUnlocked        = () => { setDetailTitle(null); setActiveTab('browse'); setGated(false); pushRoute('/browse'); window.scrollTo(0,0); };
+  const onGoSubmit               = () => { setDetailTitle(null); setActiveTab('submit'); setGated(false); pushRoute('/submit'); window.scrollTo(0,0); };
   const onGoCalculateWithPrefill = (mode, value) => {
     setCalcPrefill({ mode, value: String(value) });
-    setActiveTab('calculate'); setGated(false); window.scrollTo(0,0);
+    setActiveTab('calculate'); setGated(false); pushRoute('/calculate'); window.scrollTo(0,0);
   };
   const onTitleClick = (titleData) => { setDetailTitle(titleData); window.scrollTo(0,0); };
 
@@ -1790,14 +1826,26 @@ const LandingPage = ({ onEnter }) => {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const App = () => {
-  const returning  = localStorage.getItem('cu_has_submitted') === 'true';
-  const [view,     setView]     = useState(returning ? 'utility' : 'landing');
-  const [tab,      setTab]      = useState(returning ? 'browse'  : 'submit');
-  const [showGate, setShowGate] = useState(false);
+  const init = resolveRouteState();
+  const [view,     setView]     = useState(init.view);
+  const [tab,      setTab]      = useState(init.tab);
+  const [showGate, setShowGate] = useState(init.gate);
+
+  useEffect(() => {
+    const handlePop = () => {
+      const s = resolveRouteState();
+      setView(s.view);
+      setTab(s.tab);
+      setShowGate(s.gate);
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
 
   const goToUtility = (t) => {
     if (t === 'calculate') {
       setTab('calculate'); setShowGate(false); setView('utility');
+      pushRoute('/calculate');
       window.scrollTo(0, 0); return;
     }
     const sub = localStorage.getItem('cu_has_submitted') === 'true';
@@ -1805,10 +1853,11 @@ const App = () => {
     setTab(dest);
     setShowGate(t === 'browse' && !sub);
     setView('utility');
+    pushRoute('/' + dest);
     window.scrollTo(0, 0);
   };
 
-  const goHome = () => { setView('landing'); window.scrollTo(0, 0); };
+  const goHome = () => { setView('landing'); pushRoute('/'); window.scrollTo(0, 0); };
 
   if (view === 'landing') return <LandingPage onEnter={goToUtility}/>;
   return <UtilityShell onGoHome={goHome} initialTab={tab} initialGate={showGate}/>;
