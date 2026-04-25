@@ -414,13 +414,13 @@ const DistributionBar = ({ scaleMin, scaleMax, lowRange, typical, highRange, use
 // ─── Title Detail View ────────────────────────────────────────────────────────
 const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
   const [rows,       setRows]       = useState(null);
-  const [userSalary, setUserSalary] = useState('');
+  const [userSalary, setUserSalary] = useState(() => localStorage.getItem('cu_salary') || '');
   const [activeTab,  setActiveTab]  = useState(null);
 
   const { job_title, industry } = titleData;
 
   useEffect(() => {
-    setRows(null); setUserSalary(''); setActiveTab(null);
+    setRows(null); setUserSalary(localStorage.getItem('cu_salary') || ''); setActiveTab(null);
     if (!db) { setRows([]); return; }
     db.from('submissions')
       .select('*')
@@ -677,24 +677,39 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
         </div>
       )}
 
-      {/* ── CTA ── */}
-      <div style={{ background:'#1A1916', borderRadius:20, padding:'32px', marginBottom:16 }}>
-        <div style={{ fontSize:15, color:'#F4F2EF', lineHeight:1.7, marginBottom:20 }}>
-          {stats && stats.count > 0
-            ? `${stats.count} ${stats.count === 1 ? 'person has' : 'people have'} shared their ${stats.count === 1 ? 'salary' : 'salaries'} for this role.`
-            : 'Be the first to share for this role.'
-          }{' '}
-          Add yours — it takes 60 seconds and is completely anonymous.
+      {/* ── Your salary vs. this role ── */}
+      {userResult && (
+        <div style={{ background:'#F7F5F2', borderRadius:20, padding:'28px 32px', border:'1.5px solid #E8E4DE', marginBottom:16 }}>
+          <div style={{ fontSize:11, fontWeight:500, letterSpacing:'0.10em', color:'#9B9690', textTransform:'uppercase', marginBottom:20 }}>
+            Your salary vs. this role
+          </div>
+          <div style={{ marginBottom:20 }}>
+            <DistributionBar
+              scaleMin={barScaleMin} scaleMax={barScaleMax}
+              lowRange={stats.lowRange} typical={stats.typical} highRange={stats.highRange}
+              userValue={userGross}
+              height={10}
+            />
+          </div>
+          {(() => {
+            const pct   = Math.round(Math.abs(userGross - stats.typical) / stats.typical * 100);
+            const above = userGross >= stats.typical;
+            return (
+              <>
+                <div style={{ fontFamily:'Playfair Display', fontSize:19, fontWeight:500, letterSpacing:'-0.01em', marginBottom:10, color: above ? '#3A9D8A' : '#1A1916' }}>
+                  {above ? '▲' : '▼'} {pct}% {above ? 'above' : 'below'} the typical {job_title}
+                </div>
+                <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.7 }}>
+                  {above
+                    ? `You're earning above what most people in this role report. Worth keeping in mind at your next offer.`
+                    : `You're ${fmt(Math.round(stats.typical - userGross))} EGP/mo below the typical for this role — a concrete number to bring to your next salary conversation.`
+                  }
+                </div>
+              </>
+            );
+          })()}
         </div>
-        <button
-          onClick={onGoSubmit}
-          style={{ padding:'12px 24px', borderRadius:999, border:'none', cursor:'pointer', background:'#3A9D8A', color:'#fff', fontFamily:'DM Sans', fontSize:14, fontWeight:500, transition:'background 0.18s' }}
-          onMouseEnter={e => e.currentTarget.style.background='#2E8070'}
-          onMouseLeave={e => e.currentTarget.style.background='#3A9D8A'}
-        >
-          Share your salary →
-        </button>
-      </div>
+      )}
 
       {/* ── Trust signal ── */}
       <div style={{ textAlign:'center', fontSize:12, color:'#B0ABA4', lineHeight:1.8 }}>
@@ -824,6 +839,10 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
     }
 
     localStorage.setItem('cu_has_submitted', 'true');
+    const salMid = (parseInt(form.baseMin, 10) + parseInt(form.baseMax, 10)) / 2;
+    localStorage.setItem('cu_salary', String(Math.round(
+      form.salaryType === 'gross' ? salMid : calcGrossFromNet(salMid).gross
+    )));
     setSubmitted(true);
     setSubmitting(false);
     fetchBenchmark(form.title, form.city, form.industry, form.experience, form.baseMin, form.baseMax, form.salaryType);
