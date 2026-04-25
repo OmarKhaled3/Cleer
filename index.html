@@ -1381,6 +1381,16 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
 
   const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
 
+  // Normalise the URL to match the active tab on first mount.
+  // Without this, a returning user who loads at "/" has no history entry
+  // for browse, so the first back-press exits the app instead of staying in it.
+  useEffect(() => {
+    const tabPath = '/' + (activeTab === 'browse' ? 'browse' : activeTab === 'calculate' ? 'calculate' : 'submit');
+    if (window.location.pathname !== tabPath) {
+      window.history.replaceState(null, '', tabPath);
+    }
+  }, []);
+
   useEffect(() => {
     const handlePop = () => {
       const path = window.location.pathname;
