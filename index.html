@@ -594,6 +594,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
               type="number"
               value={userSalary}
               onChange={e => setUserSalary(e.target.value)}
+              onBlur={e => { if (e.target.value) localStorage.setItem('cu_salary', e.target.value); }}
               placeholder="Your gross monthly salary (EGP)"
               style={{
                 width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
@@ -1212,7 +1213,9 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
     ev.preventDefault();
     const v = parseFloat(input);
     if (!v || v <= 0) return;
-    setResult(isNtG ? calcGrossFromNet(v) : calcTakeHome(v));
+    const res = isNtG ? calcGrossFromNet(v) : calcTakeHome(v);
+    setResult(res);
+    localStorage.setItem('cu_salary', String(Math.round(res.gross)));
   };
 
   const switchMode = (m) => { setMode(m); setInput(''); setResult(null); setPreviewRows(null); };
@@ -1427,7 +1430,7 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
     setCalcPrefill({ mode, value: String(value) });
     setActiveTab('calculate'); setGated(false); pushRoute('/calculate'); window.scrollTo(0,0);
   };
-  const onTitleClick = (titleData) => { setDetailTitle(titleData); window.scrollTo(0,0); };
+  const onTitleClick = (titleData) => { setDetailTitle(titleData); pushRoute('/browse'); window.scrollTo(0,0); };
 
   const TABS = [
     ['browse',    'Browse salaries',               'Browse'],
