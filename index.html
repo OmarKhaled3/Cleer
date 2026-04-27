@@ -415,14 +415,24 @@ const DistributionBar = ({ scaleMin, scaleMax, lowRange, typical, highRange, use
 
 // ─── Title Detail View ────────────────────────────────────────────────────────
 const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
-  const [rows,       setRows]       = useState(null);
-  const [userSalary, setUserSalary] = useState(() => localStorage.getItem('cu_salary') || '');
-  const [activeTab,  setActiveTab]  = useState(null);
+  const [rows,             setRows]             = useState(null);
+  const [userSalary,       setUserSalary]       = useState(() => localStorage.getItem('cu_salary') || '');
+  const [activeTab,        setActiveTab]        = useState(null);
+  const [showSalaryPrompt, setShowSalaryPrompt] = useState(() => {
+    return !localStorage.getItem('cu_salary') && localStorage.getItem('cu_has_submitted') === 'true';
+  });
+  const [promptSalary, setPromptSalary] = useState('');
 
   const { job_title, industry } = titleData;
 
   useEffect(() => {
-    setRows(null); setUserSalary(localStorage.getItem('cu_salary') || ''); setActiveTab(null);
+    const saved = localStorage.getItem('cu_salary');
+    const hasSubmitted = localStorage.getItem('cu_has_submitted') === 'true';
+    setRows(null);
+    setUserSalary(saved || '');
+    setActiveTab(null);
+    setShowSalaryPrompt(!saved && hasSubmitted);
+    setPromptSalary('');
     if (!db) { setRows([]); return; }
     db.from('submissions')
       .select('*')
@@ -572,16 +582,52 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
           </div>
 
           <div style={{ marginBottom:24 }}>
-            <input
-              type="number"
-              value={userSalary}
-              onChange={e => setUserSalary(e.target.value)}
-              placeholder="Your gross monthly salary (EGP)"
-              style={{
-                width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
-                border:'1.5px solid #E0DBD4', background:'#F7F5F2', color:'#1A1916', outline:'none',
-              }}
-            />
+            {showSalaryPrompt ? (
+              <div>
+                <div style={{ fontSize:13, color:'#6B6660', marginBottom:10, lineHeight:1.6 }}>
+                  What's your net monthly salary?
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input
+                    type="number"
+                    value={promptSalary}
+                    onChange={e => setPromptSalary(e.target.value)}
+                    placeholder="e.g. 18000"
+                    style={{
+                      flex:1, padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
+                      border:'1.5px solid #E0DBD4', background:'#F7F5F2', color:'#1A1916', outline:'none',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const net = parseFloat(promptSalary);
+                      if (!net || net <= 0) return;
+                      const gross = Math.round(calcGrossFromNet(net).gross);
+                      localStorage.setItem('cu_salary', String(gross));
+                      setUserSalary(String(gross));
+                      setShowSalaryPrompt(false);
+                    }}
+                    style={{
+                      padding:'13px 20px', borderRadius:12, border:'none',
+                      background:'#3A9D8A', color:'#fff', fontFamily:'DM Sans',
+                      fontSize:14, fontWeight:500, cursor:'pointer', whiteSpace:'nowrap',
+                    }}
+                  >Confirm</button>
+                </div>
+              </div>
+            ) : (
+              <input
+                type="number"
+                value={userSalary}
+                onChange={e => setUserSalary(e.target.value)}
+                placeholder="Your gross monthly salary (EGP)"
+                style={{
+                  width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
+                  border:'1.5px solid #E0DBD4', background:'#F7F5F2', color:'#1A1916', outline:'none',
+                }}
+              />
+            )}
           </div>
 
           <div style={{ marginBottom:8 }}>
@@ -748,8 +794,8 @@ const CopyBtn = () => {
 const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
-    experience:'', city:'', currency:'EGP', salaryType:'gross',
-    baseMin:'', baseMax:'', compensationType:'Base salary only',
+    experience:'', city:'', currency:'EGP', salaryType:'net',
+    base:'', compensationType:'Base salary only',
   });
   const [step,       setStep]       = useState(1);
   const [submitted,  setSubmitted]  = useState(false);
@@ -775,8 +821,7 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
       if (!form.companyType)  e.companyType = true;
       if (!form.companySize)  e.companySize = true;
       if (!form.city)         e.city = true;
-      if (!form.baseMin)      e.baseMin = true;
-      if (!form.baseMax)      e.baseMax = true;
+      if (!form.base)         e.base = true;
     }
     return e;
   };
@@ -791,9 +836,9 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
 
   const handleBack = () => { setStep(s => s - 1); setErrors({}); window.scrollTo(0, 0); };
 
-  const fetchBenchmark = async (title, city, industry, experience, baseMin, baseMax, salaryType) => {
-    const userMid = (parseInt(baseMin) + parseInt(baseMax)) / 2;
-    const userNet = salaryType === 'gross' ? calcTakeHome(userMid).net : userMid;
+  const fetchBenchmark = async (title, city, industry, experience, base, salaryType) => {
+    const userVal = parseInt(base);
+    const userNet = salaryType === 'gross' ? calcTakeHome(userVal).net : userVal;
     if (!db) { setBenchmark({ count: 0 }); return; }
     const { data } = await db
       .from('submissions')
@@ -827,8 +872,8 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
         company_size:     form.companySize,
         years_experience: form.experience,
         city:             form.city,
-        salary_min:        parseInt(form.baseMin, 10),
-        salary_max:        parseInt(form.baseMax, 10),
+        salary_min:        parseInt(form.base, 10),
+        salary_max:        parseInt(form.base, 10),
         currency:          form.currency,
         salary_type:       form.salaryType,
         compensation_type: form.compensationType,
@@ -841,13 +886,13 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
     }
 
     localStorage.setItem('cu_has_submitted', 'true');
-    const salMid = (parseInt(form.baseMin, 10) + parseInt(form.baseMax, 10)) / 2;
+    const salVal = parseInt(form.base, 10);
     localStorage.setItem('cu_salary', String(Math.round(
-      form.salaryType === 'gross' ? salMid : calcGrossFromNet(salMid).gross
+      form.salaryType === 'gross' ? salVal : calcGrossFromNet(salVal).gross
     )));
     setSubmitted(true);
     setSubmitting(false);
-    fetchBenchmark(form.title, form.city, form.industry, form.experience, form.baseMin, form.baseMax, form.salaryType);
+    fetchBenchmark(form.title, form.city, form.industry, form.experience, form.base, form.salaryType);
   };
 
   const L   = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
@@ -952,8 +997,8 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
               {form.salaryType === 'net' ? 'Want to know your gross salary?' : 'Want to know your exact take-home pay?'}
             </div>
             <Pill variant="ghost" onClick={() => {
-              const mid = Math.round((parseInt(form.baseMin) + parseInt(form.baseMax)) / 2);
-              onGoCalculate(form.salaryType === 'net' ? 'net-to-gross' : 'gross-to-net', mid);
+              const val = parseInt(form.base);
+              onGoCalculate(form.salaryType === 'net' ? 'net-to-gross' : 'gross-to-net', val);
             }}>
               {form.salaryType === 'net' ? 'Calculate my gross salary' : 'Calculate my net salary'}
             </Pill>
@@ -1110,12 +1155,9 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
             <div style={{ fontSize:12, color:'#B0ABA4', marginBottom:10 }}>
               Offers are usually gross. Your take-home is net.
             </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr auto', gap:10, alignItems:'center' }}>
-              <input type="number" value={form.baseMin} onChange={e=>set('baseMin',e.target.value)}
-                placeholder="Min" style={inp(errors.baseMin)}/>
-              <span style={{ color:'#9B9690', fontSize:14 }}>—</span>
-              <input type="number" value={form.baseMax} onChange={e=>set('baseMax',e.target.value)}
-                placeholder="Max" style={inp(errors.baseMax)}/>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'center' }}>
+              <input type="number" value={form.base} onChange={e=>set('base',e.target.value)}
+                placeholder="e.g. 25000" style={inp(errors.base)}/>
               <div style={{ position:'relative', minWidth:120 }}>
                 <select value={form.currency} onChange={e=>set('currency',e.target.value)} style={{
                   ...inp(false), minWidth:120, cursor:'pointer', appearance:'none', WebkitAppearance:'none',
@@ -1126,8 +1168,8 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
                 <Chevron/>
               </div>
             </div>
-            {(errors.baseMin || errors.baseMax) && (
-              <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Min and max are required</div>
+            {errors.base && (
+              <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>
             )}
           </div>
 
