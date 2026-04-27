@@ -1140,7 +1140,7 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
               <label style={{...L, marginBottom:0}}>MONTHLY BASE SALARY</label>
               <div style={{ display:'flex', background:'#ECEAE5', borderRadius:999, padding:3, gap:2 }}>
-                {['gross','net'].map(t => (
+                {['net','gross'].map(t => (
                   <button key={t} type="button" onClick={() => set('salaryType', t)} style={{
                     padding:'4px 12px', borderRadius:999, border:'none', cursor:'pointer',
                     fontFamily:'DM Sans', fontSize:12, fontWeight:500, textTransform:'capitalize',
