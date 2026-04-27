@@ -1141,7 +1141,20 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
               <label style={{...L, marginBottom:0}}>MONTHLY BASE SALARY</label>
               <div style={{ display:'flex', background:'#ECEAE5', borderRadius:999, padding:3, gap:2 }}>
                 {['net','gross'].map(t => (
-                  <button key={t} type="button" onClick={() => set('salaryType', t)} style={{
+                  <button key={t} type="button" onClick={() => {
+                    if (t === form.salaryType) return;
+                    const v = parseFloat(form.base);
+                    if (v > 0) {
+                      const converted = t === 'gross'
+                        ? Math.round(calcGrossFromNet(v).gross)
+                        : Math.round(calcTakeHome(v).net);
+                      setForm(f => ({ ...f, salaryType: t, base: String(converted) }));
+                      setErrors(er => ({ ...er, salaryType: false, base: false }));
+                      setApiError('');
+                    } else {
+                      set('salaryType', t);
+                    }
+                  }} style={{
                     padding:'4px 12px', borderRadius:999, border:'none', cursor:'pointer',
                     fontFamily:'DM Sans', fontSize:12, fontWeight:500, textTransform:'capitalize',
                     background: form.salaryType === t ? '#fff' : 'transparent',
