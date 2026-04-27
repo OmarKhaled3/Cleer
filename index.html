@@ -443,7 +443,10 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
 
   const stats = useMemo(() => {
     if (!rows || rows.length === 0) return null;
-    const mids = rows.map(r => (r.salary_min + r.salary_max) / 2).sort((a, b) => a - b);
+    const mids = rows.map(r => {
+      const mid = (r.salary_min + r.salary_max) / 2;
+      return r.salary_type === 'gross' ? calcTakeHome(mid).net : mid;
+    }).sort((a, b) => a - b);
     const n   = mids.length;
     const at  = p => mids[Math.min(n - 1, Math.floor(n * p))];
     const newest = rows.reduce((a, b) => a.created_at > b.created_at ? a : b);
@@ -467,7 +470,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
         if (!key) return;
         if (!groups[key]) groups[key] = [];
         const mid = (r.salary_min + r.salary_max) / 2;
-        groups[key].push(mid);
+        groups[key].push(r.salary_type === 'gross' ? calcTakeHome(mid).net : mid);
       });
       return Object.entries(groups)
         .filter(([, vals]) => vals.length >= 5)
@@ -504,16 +507,14 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
     max: Math.max(...activeSegs.map(s => s.highRange)) * 1.15,
   } : null;
 
-  const userGross  = parseFloat(userSalary) || 0;
-  const userResult = (userGross > 0 && stats) ? (() => {
-    const net    = calcTakeHome(userGross).net;
-    const typNet = calcTakeHome(stats.typical).net;
+  const userNet    = parseFloat(userSalary) || 0;
+  const userResult = (userNet > 0 && stats) ? (() => {
     let label;
-    if      (userGross < stats.lowRange)    label = 'below the typical range';
-    else if (userGross < stats.typical)     label = 'in the lower half for this role';
-    else if (userGross <= stats.highRange)  label = 'in the upper half for this role';
-    else                                    label = 'among the top earners for this role';
-    return { net, typNet, label };
+    if      (userNet < stats.lowRange)    label = 'below the typical range';
+    else if (userNet < stats.typical)     label = 'in the lower half for this role';
+    else if (userNet <= stats.highRange)  label = 'in the upper half for this role';
+    else                                  label = 'among the top earners for this role';
+    return { net: userNet, typNet: stats.typical, label };
   })() : null;
 
   const barScaleMin = stats ? stats.min * 0.85 : 0;
@@ -603,9 +604,8 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
                     onClick={() => {
                       const net = parseFloat(promptSalary);
                       if (!net || net <= 0) return;
-                      const gross = Math.round(calcGrossFromNet(net).gross);
-                      localStorage.setItem('cu_salary', String(gross));
-                      setUserSalary(String(gross));
+                      localStorage.setItem('cu_salary', String(Math.round(net)));
+                      setUserSalary(String(Math.round(net)));
                       setShowSalaryPrompt(false);
                     }}
                     style={{
@@ -621,7 +621,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
                 type="number"
                 value={userSalary}
                 onChange={e => setUserSalary(e.target.value)}
-                placeholder="Your gross monthly salary (EGP)"
+                placeholder="Your net monthly salary (EGP)"
                 style={{
                   width:'100%', padding:'13px 16px', borderRadius:12, fontFamily:'DM Sans', fontSize:14,
                   border:'1.5px solid #E0DBD4', background:'#F7F5F2', color:'#1A1916', outline:'none',
@@ -634,7 +634,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
             <DistributionBar
               scaleMin={barScaleMin} scaleMax={barScaleMax}
               lowRange={stats.lowRange} typical={stats.typical} highRange={stats.highRange}
-              userValue={userGross > 0 ? userGross : null}
+              userValue={userNet > 0 ? userNet : null}
               height={12}
             />
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, color:'#9B9690' }}>
@@ -735,22 +735,22 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
             <DistributionBar
               scaleMin={barScaleMin} scaleMax={barScaleMax}
               lowRange={stats.lowRange} typical={stats.typical} highRange={stats.highRange}
-              userValue={userGross}
+              userValue={userNet}
               height={10}
             />
           </div>
           {(() => {
-            const pct   = Math.round(Math.abs(userGross - stats.typical) / stats.typical * 100);
-            const above = userGross >= stats.typical;
+            const pct   = Math.round(Math.abs(userNet - stats.typical) / stats.typical * 100);
+            const above = userNet >= stats.typical;
             return (
               <>
                 <div style={{ fontFamily:'Playfair Display', fontSize:19, fontWeight:500, letterSpacing:'-0.01em', marginBottom:10, color: above ? '#3A9D8A' : '#1A1916' }}>
-                  {above ? '▲' : '▼'} {pct}% {above ? 'above' : 'below'} the typical {job_title}
+                  {above ? '▲' : '▼'} {pct}% {above ? 'above' : 'below'} the typical for this role
                 </div>
                 <div style={{ fontSize:14, color:'#6B6660', lineHeight:1.7 }}>
                   {above
-                    ? `You're earning above what most people in this role report. Worth keeping in mind at your next offer.`
-                    : `You're ${fmt(Math.round(stats.typical - userGross))} EGP/mo below the typical for this role — a concrete number to bring to your next salary conversation.`
+                    ? `Your salary is above what most people in this role report — useful context if you're considering a move.`
+                    : `The typical here is ${fmt(Math.round(stats.typical - userNet))} EGP/mo more — useful context if you're considering a move.`
                   }
                 </div>
               </>
@@ -888,7 +888,7 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
     localStorage.setItem('cu_has_submitted', 'true');
     const salVal = parseInt(form.base, 10);
     localStorage.setItem('cu_salary', String(Math.round(
-      form.salaryType === 'gross' ? salVal : calcGrossFromNet(salVal).gross
+      form.salaryType === 'net' ? salVal : calcTakeHome(salVal).net
     )));
     setSubmitted(true);
     setSubmitting(false);
