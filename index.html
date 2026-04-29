@@ -240,11 +240,6 @@ const SalaryCard = ({ entry: e, onClick }) => {
           const label = COMP_LABELS[val];
           return label ? <Tag accent>{label}</Tag> : (val ? <Tag accent>{val}</Tag> : null);
         })()}
-        {e.count > 1 && e.salary_min !== e.salary_max && (
-          <span style={{ fontSize:11, color:'#9B9690', padding:'3px 8px', borderRadius:999, border:'1px solid #E0DBD4', lineHeight:1.4 }}>
-            {e.count} salaries
-          </span>
-        )}
       </div>
       <div style={{ borderTop:'1px solid #EEEAE4', paddingTop:14 }}>
         <div style={{ fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#9B9690', marginBottom:4 }}>
@@ -363,11 +358,6 @@ const BrowseView = ({ onTitleClick }) => {
         </div>
       ) : grouped.length > 0 ? (
         <>
-          {grouped.length < rows.length && (
-            <div style={{ fontSize:13, color:'#9B9690', marginBottom:20 }}>
-              {grouped.length} result{grouped.length !== 1 ? 's' : ''} found
-            </div>
-          )}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
             {grouped.map((g, i) => <SalaryCard key={i} entry={g} onClick={onTitleClick ? () => onTitleClick({ job_title: g.job_title, industry: g.industry }) : undefined}/>)}
           </div>
