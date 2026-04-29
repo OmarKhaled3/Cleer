@@ -1755,7 +1755,7 @@ const LandingPage = ({ onEnter }) => {
 
         {/* Text block */}
         <div style={{
-          maxWidth:1100, margin:'0 auto', width:'100%', padding:'160px 48px 24px',
+          maxWidth:1100, margin:'0 auto', width:'100%', padding:'120px 48px 16px',
           opacity: heroVisible ? 1 : 0,
           transform: heroVisible ? 'none' : 'translateY(24px)',
           transition:'opacity 0.7s ease, transform 0.7s ease',
@@ -1819,7 +1819,7 @@ const LandingPage = ({ onEnter }) => {
             </div>
 
             {/* Trust chips */}
-            <div style={{ display:'flex', justifyContent:'center', gap:8, flexWrap:'wrap', paddingTop:56 }}>
+            <div style={{ display:'flex', justifyContent:'center', gap:8, flexWrap:'wrap', paddingTop:24 }}>
               {['No name', 'No email', 'No company'].map(label => (
                 <span key={label} style={{
                   display:'inline-flex', alignItems:'center', gap:5,
