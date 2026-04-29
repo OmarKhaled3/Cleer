@@ -1805,10 +1805,12 @@ const LandingPage = ({ onEnter }) => {
           {/* Right — tilted card */}
           <div className="hero-card-outer" style={{ flex:'0 0 440px', display:'flex', flexDirection:'column', alignItems:'stretch', gap:20, transform:'translateX(148px) translateY(-62px)' }}>
             <div className="hero-card-wrap" style={{
-              filter:'drop-shadow(0 32px 80px rgba(58,157,138,0.18)) drop-shadow(0 8px 24px rgba(0,0,0,0.10))',
+              borderRadius:20,
+              boxShadow:'0 32px 80px rgba(58,157,138,0.18), 0 8px 24px rgba(0,0,0,0.10)',
               transform:'rotate(9deg)',
               transition:'transform 0.4s ease',
               transformOrigin:'center center',
+              willChange:'transform',
             }}
             onMouseEnter={e => e.currentTarget.style.transform='rotate(5deg) scale(1.02)'}
             onMouseLeave={e => e.currentTarget.style.transform='rotate(9deg)'}
