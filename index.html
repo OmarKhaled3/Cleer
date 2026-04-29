@@ -1772,9 +1772,6 @@ const LandingPage = ({ onEnter }) => {
             Stop negotiating<br/>
             in the <em style={{ fontStyle:'italic', color:'#3A9D8A' }}>dark.</em>
           </h1>
-          <p style={{ fontSize:'clamp(16px, 1.8vw, 20px)', color:'#6B6660', lineHeight:1.75, maxWidth:520 }}>
-            A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
-          </p>
         </div>
 
         {/* ── Split: left CTAs / right card ── */}
@@ -1788,6 +1785,9 @@ const LandingPage = ({ onEnter }) => {
 
           {/* Left — CTAs */}
           <div style={{ flex:1, display:'flex', flexDirection:'column', gap:0 }}>
+            <p style={{ fontSize:'clamp(16px, 1.8vw, 20px)', color:'#6B6660', lineHeight:1.75, maxWidth:520, margin:'0 0 28px' }}>
+              A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
+            </p>
             <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:20 }}>
               <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Share anonymously</Pill>
               <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'14px 32px', fontSize:16 }}>Browse salaries →</Pill>
