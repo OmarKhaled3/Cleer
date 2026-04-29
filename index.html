@@ -169,22 +169,77 @@ const INDUSTRY_SUBS = {
 const daysAgo = (ts) => Math.max(0, Math.floor((Date.now() - new Date(ts)) / 86400000));
 const fmt     = (n)  => Math.round(n).toLocaleString();
 
+// ─── Hash-based routing ───────────────────────────────────────────────────────
+// Routes:
+//   #/              → landing
+//   #/browse        → browse
+//   #/submit        → submit
+//   #/calculate     → calculate
+//   #/title/<industry>/<job_title>  → title detail (within browse)
+const hashFor = (route) => {
+  if (!route || route.view === 'landing')   return '#/';
+  if (route.view === 'browse')              return '#/browse';
+  if (route.view === 'submit')              return '#/submit';
+  if (route.view === 'calculate')           return '#/calculate';
+  if (route.view === 'title' && route.titleData)
+    return `#/title/${encodeURIComponent(route.titleData.industry)}/${encodeURIComponent(route.titleData.job_title)}`;
+  return '#/';
+};
+
+const parseHash = () => {
+  const raw = (window.location.hash || '').replace(/^#\/?/, '');
+  if (!raw) return { view: 'landing' };
+  const parts = raw.split('/').filter(Boolean);
+  if (parts[0] === 'browse')    return { view: 'browse' };
+  if (parts[0] === 'submit')    return { view: 'submit' };
+  if (parts[0] === 'calculate') return { view: 'calculate' };
+  if (parts[0] === 'title' && parts[1] && parts[2]) {
+    try {
+      return { view: 'title', titleData: {
+        industry:  decodeURIComponent(parts[1]),
+        job_title: decodeURIComponent(parts[2]),
+      }};
+    } catch (_) { return { view: 'landing' }; }
+  }
+  return { view: 'landing' };
+};
+
+const navigate = (route, { replace = false } = {}) => {
+  const target = hashFor(route);
+  if (window.location.hash === target) return;
+  if (replace) {
+    const url = window.location.pathname + window.location.search + target;
+    window.history.replaceState(null, '', url);
+    // replaceState doesn't fire hashchange — dispatch one so listeners resync.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } else {
+    window.location.hash = target;
+  }
+};
+
 // ─── Primitives ───────────────────────────────────────────────────────────────
-const Logo = ({ onClick, style }) => (
-  <div onClick={onClick} style={{
-    display:'flex', alignItems:'center', gap:8,
-    cursor: onClick ? 'pointer' : 'default', userSelect:'none', ...style,
-  }}>
-    <svg width="35" height="35" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="64" height="64" rx="12" fill="#1A1916"/>
-      <rect x="15" y="15" width="28" height="28" rx="4" stroke="#F4F2EF" strokeWidth="2.5" fill="none" opacity="0.45"/>
-      <rect x="21" y="21" width="28" height="28" rx="4" fill="#3A9D8A"/>
-    </svg>
-    <span style={{ fontFamily:'Playfair Display', fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>
-      Cleer<span style={{color:'#3A9D8A'}}>.</span>
-    </span>
-  </div>
-);
+const Logo = ({ onClick, href, style }) => {
+  const interactive = onClick || href;
+  const inner = (
+    <>
+      <svg width="35" height="35" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="12" fill="#1A1916"/>
+        <rect x="15" y="15" width="28" height="28" rx="4" stroke="#F4F2EF" strokeWidth="2.5" fill="none" opacity="0.45"/>
+        <rect x="21" y="21" width="28" height="28" rx="4" fill="#3A9D8A"/>
+      </svg>
+      <span style={{ fontFamily:'Playfair Display', fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>
+        Cleer<span style={{color:'#3A9D8A'}}>.</span>
+      </span>
+    </>
+  );
+  const baseStyle = {
+    display:'inline-flex', alignItems:'center', gap:8,
+    cursor: interactive ? 'pointer' : 'default', userSelect:'none',
+    color:'inherit', textDecoration:'none', ...style,
+  };
+  if (href) return <a href={href} onClick={onClick} style={baseStyle}>{inner}</a>;
+  return <div onClick={onClick} style={baseStyle}>{inner}</div>;
+};
 
 const Tag = ({ children, accent }) => (
   <span style={{
@@ -222,17 +277,19 @@ const Pill = ({ children, onClick, variant='outline', style, type='button' }) =>
 };
 
 // ─── Salary Card ──────────────────────────────────────────────────────────────
-const SalaryCard = ({ entry: e, onClick }) => {
+const SalaryCard = ({ entry: e, href }) => {
   const [hov, setHov] = useState(false);
   const d = daysAgo(e.created_at);
+  const Outer = href ? 'a' : 'div';
   return (
-    <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
+    <Outer href={href} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
       background:'#fff', borderRadius:20, padding:'22px 24px',
       border: hov ? '1.5px solid #B8D8D4' : '1.5px solid #E8E4DE',
       transition:'border-color 0.18s, box-shadow 0.18s',
       boxShadow: hov ? '0 4px 24px rgba(58,157,138,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
       display:'flex', flexDirection:'column', gap:14,
-      cursor: onClick ? 'pointer' : 'default',
+      cursor: href ? 'pointer' : 'default',
+      color:'inherit', textDecoration:'none',
     }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
         <div style={{ fontFamily:'Playfair Display', fontSize:17, fontWeight:500, lineHeight:1.3 }}>{e.job_title}</div>
@@ -268,14 +325,14 @@ const SalaryCard = ({ entry: e, onClick }) => {
           <div style={{ fontSize:12, color:'#B0ABA4' }}>{d === 0 ? 'today' : `${d}d ago`}</div>
         </div>
       </div>
-    </div>
+    </Outer>
   );
 };
 
 // ─── Browse View ──────────────────────────────────────────────────────────────
 const CARDS_PER_PAGE = 30;
 
-const BrowseView = ({ onTitleClick }) => {
+const BrowseView = () => {
   const [rows, setRows]                 = useState(null); // null = loading
   const [loadError, setLoadError]       = useState('');
   const [searchQuery, setSearchQuery]   = useState('');
@@ -397,7 +454,9 @@ const BrowseView = ({ onTitleClick }) => {
       ) : grouped.length > 0 ? (
         <>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
-            {pageSlice.map((g, i) => <SalaryCard key={i} entry={g} onClick={onTitleClick ? () => onTitleClick({ job_title: g.job_title, industry: g.industry }) : undefined}/>)}
+            {pageSlice.map((g, i) => (
+              <SalaryCard key={i} entry={g} href={hashFor({ view:'title', titleData:{ job_title:g.job_title, industry:g.industry } })}/>
+            ))}
           </div>
           {totalPages > 1 && (
             <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:12, marginTop:40 }}>
@@ -1482,43 +1541,41 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
 };
 
 // ─── Utility Shell ────────────────────────────────────────────────────────────
-const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
-  const [activeTab,   setActiveTab]   = useState(initialTab || 'submit');
-  const [gated,       setGated]       = useState(initialGate || false);
+const UtilityShell = ({ route }) => {
   const [jiggleCount, setJiggleCount] = useState(0);
   const [calcPrefill, setCalcPrefill] = useState(null);
-  const [detailTitle, setDetailTitle] = useState(null);
 
   const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
 
+  // Route → display state. If user routes to browse (or a title within browse)
+  // without having submitted, gate them on the submit tab.
+  const isTitle  = route.view === 'title';
+  const intended = isTitle ? 'browse' : route.view;
+  const gated    = intended === 'browse' && !hasSubmitted();
+  const activeTab = gated ? 'submit' : intended;
+  const detailTitle = isTitle && !gated ? route.titleData : null;
+
   const switchTab = (key) => {
-    setDetailTitle(null);
-    if (key === 'calculate') {
-      setCalcPrefill(null); setActiveTab('calculate'); setGated(false); return;
-    }
     if (key === 'browse' && !hasSubmitted()) {
-      if (activeTab === 'submit' && gated) {
-        setJiggleCount(c => c + 1);
-      } else {
-        setActiveTab('submit'); setGated(true);
-      }
-    } else {
-      setActiveTab(key); setGated(false);
+      // Already gated on submit → jiggle instead of navigating again
+      if (activeTab === 'submit' && gated) { setJiggleCount(c => c + 1); return; }
     }
+    if (key === 'calculate') setCalcPrefill(null);
+    navigate({ view: key });
   };
 
-  const onBrowseUnlocked        = () => { setDetailTitle(null); setActiveTab('browse'); setGated(false); window.scrollTo(0,0); };
-  const onGoSubmit               = () => { setDetailTitle(null); setActiveTab('submit'); setGated(false); window.scrollTo(0,0); };
+  const onBrowseUnlocked         = () => { navigate({ view: 'browse' }); window.scrollTo(0,0); };
+  const onGoSubmit               = () => { navigate({ view: 'submit' }); window.scrollTo(0,0); };
   const onGoCalculateWithPrefill = (mode, value) => {
     setCalcPrefill({ mode, value: String(value) });
-    setActiveTab('calculate'); setGated(false); window.scrollTo(0,0);
+    navigate({ view: 'calculate' });
+    window.scrollTo(0,0);
   };
-  const onTitleClick = (titleData) => { setDetailTitle(titleData); window.scrollTo(0,0); };
 
   const TABS = [
-    ['browse',    'Browse salaries',               'Browse'],
+    ['browse',    'Browse salaries',   'Browse'],
     ['submit',    'Share anonymously', 'Share'],
-    ['calculate', 'Calculate',                     'Calculate'],
+    ['calculate', 'Calculate',         'Calculate'],
   ];
 
   return (
@@ -1531,26 +1588,36 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
         display:'flex', alignItems:'center', justifyContent:'space-between',
         height:64,
       }}>
-        <Logo onClick={onGoHome}/>
+        <Logo href="#/"/>
         <div style={{ display:'flex', alignItems:'center', gap:2, background:'#ECEAE5', borderRadius:999, padding:4 }}>
-          {TABS.map(([key, label, short]) => (
-            <button key={key} className="shell-tab" onClick={() => switchTab(key)} style={{
-              padding:'8px 18px', borderRadius:999, border:'none', cursor:'pointer',
-              fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
-              background: activeTab === key ? '#fff' : 'transparent',
-              color: activeTab === key ? '#1A1916' : '#8A8580',
-              boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
-            }}>
-              <span className="tab-full">{label}</span>
-              <span className="tab-short">{short}</span>
-            </button>
-          ))}
+          {TABS.map(([key, label, short]) => {
+            const isActive = intended === key;
+            return (
+              <a key={key} href={hashFor({ view: key })} className="shell-tab"
+                onClick={(ev) => {
+                  if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
+                  ev.preventDefault();
+                  switchTab(key);
+                }}
+                style={{
+                  padding:'8px 18px', borderRadius:999, border:'none', cursor:'pointer',
+                  fontFamily:'DM Sans', fontSize:13, fontWeight:500, transition:'all 0.18s ease',
+                  background: isActive ? '#fff' : 'transparent',
+                  color: isActive ? '#1A1916' : '#8A8580',
+                  boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+                  textDecoration:'none',
+                }}>
+                <span className="tab-full">{label}</span>
+                <span className="tab-short">{short}</span>
+              </a>
+            );
+          })}
         </div>
         <div className="shell-nav-spacer" style={{ width:120 }}/>
       </nav>
 
-      {activeTab === 'browse' && !detailTitle && <BrowseView onTitleClick={onTitleClick}/>}
-      {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { setDetailTitle(null); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
+      {activeTab === 'browse' && !detailTitle && <BrowseView/>}
+      {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { navigate({ view: 'browse' }); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
       {activeTab === 'submit'    && <SubmitView showGate={gated} jiggleCount={jiggleCount} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
       {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
     </div>
@@ -1927,28 +1994,31 @@ const LandingPage = ({ onEnter }) => {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const App = () => {
-  const returning  = localStorage.getItem('cu_has_submitted') === 'true';
-  const [view,     setView]     = useState(returning ? 'utility' : 'landing');
-  const [tab,      setTab]      = useState(returning ? 'browse'  : 'submit');
-  const [showGate, setShowGate] = useState(false);
+  const [route, setRoute] = useState(parseHash);
 
-  const goToUtility = (t) => {
-    if (t === 'calculate') {
-      setTab('calculate'); setShowGate(false); setView('utility');
-      window.scrollTo(0, 0); return;
+  useEffect(() => {
+    const onHashChange = () => {
+      setRoute(parseHash());
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener('hashchange', onHashChange);
+
+    // First-load redirect: returning users with no hash land on /browse.
+    if (!window.location.hash) {
+      const returning = localStorage.getItem('cu_has_submitted') === 'true';
+      if (returning) {
+        navigate({ view: 'browse' }, { replace: true });
+        setRoute({ view: 'browse' });
+      }
     }
-    const sub = localStorage.getItem('cu_has_submitted') === 'true';
-    const dest = (t === 'browse' && !sub) ? 'submit' : t;
-    setTab(dest);
-    setShowGate(t === 'browse' && !sub);
-    setView('utility');
-    window.scrollTo(0, 0);
-  };
 
-  const goHome = () => { setView('landing'); window.scrollTo(0, 0); };
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
-  if (view === 'landing') return <LandingPage onEnter={goToUtility}/>;
-  return <UtilityShell onGoHome={goHome} initialTab={tab} initialGate={showGate}/>;
+  if (route.view === 'landing') {
+    return <LandingPage onEnter={(t) => navigate({ view: t })}/>;
+  }
+  return <UtilityShell route={route}/>;
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
