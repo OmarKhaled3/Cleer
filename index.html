@@ -48,6 +48,17 @@
     .tab-full         { display: none !important; }
     .tab-short        { display: inline !important; }
   }
+  @keyframes jiggle {
+    0%   { transform: translateX(0); }
+    15%  { transform: translateX(-6px); }
+    30%  { transform: translateX(6px); }
+    45%  { transform: translateX(-5px); }
+    60%  { transform: translateX(5px); }
+    75%  { transform: translateX(-3px); }
+    90%  { transform: translateX(3px); }
+    100% { transform: translateX(0); }
+  }
+  .gate-jiggle { animation: jiggle 0.45s ease; }
 </style>
 </head>
 <body>
@@ -259,13 +270,16 @@ const SalaryCard = ({ entry: e, onClick }) => {
 };
 
 // ─── Browse View ──────────────────────────────────────────────────────────────
+const CARDS_PER_PAGE = 30;
+
 const BrowseView = ({ onTitleClick }) => {
   const [rows, setRows]                 = useState(null); // null = loading
   const [loadError, setLoadError]       = useState('');
-  const [roleFilter, setRoleFilter]     = useState('All roles');
+  const [searchQuery, setSearchQuery]   = useState('');
   const [indFilter, setIndFilter]       = useState('All industries');
   const [typeFilter, setTypeFilter]     = useState('All company types');
   const [cityFilter, setCityFilter]     = useState('All cities');
+  const [page, setPage]                 = useState(1);
 
   useEffect(() => {
     if (!db) { setRows([]); return; }
@@ -279,17 +293,15 @@ const BrowseView = ({ onTitleClick }) => {
       });
   }, []);
 
-  const roleOptions = useMemo(() => {
-    if (!rows || !rows.length) return ['All roles'];
-    return ['All roles', ...[...new Set(rows.map(r => r.job_title))].sort()];
-  }, [rows]);
-
-  const filtered = (rows || []).filter(r =>
-    (roleFilter === 'All roles'          || r.job_title    === roleFilter) &&
-    (indFilter  === 'All industries'     || r.industry     === indFilter)  &&
-    (typeFilter === 'All company types'  || r.company_type === typeFilter) &&
-    (cityFilter === 'All cities'         || r.city         === cityFilter)
-  );
+  const filtered = useMemo(() => (rows || []).filter(r => {
+    const q = searchQuery.trim().toLowerCase();
+    return (
+      (!q || r.job_title.toLowerCase().includes(q)) &&
+      (indFilter  === 'All industries'     || r.industry     === indFilter)  &&
+      (typeFilter === 'All company types'  || r.company_type === typeFilter) &&
+      (cityFilter === 'All cities'         || r.city         === cityFilter)
+    );
+  }), [rows, searchQuery, indFilter, typeFilter, cityFilter]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -306,6 +318,12 @@ const BrowseView = ({ onTitleClick }) => {
     });
     return Object.values(map);
   }, [filtered]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [searchQuery, indFilter, typeFilter, cityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(grouped.length / CARDS_PER_PAGE));
+  const pageSlice  = grouped.slice((page - 1) * CARDS_PER_PAGE, page * CARDS_PER_PAGE);
 
   const selStyle = {
     width:'100%', padding:'12px 18px', appearance:'none', WebkitAppearance:'none',
@@ -333,8 +351,24 @@ const BrowseView = ({ onTitleClick }) => {
 
       {/* Filters */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:10, marginBottom:32 }}>
+        {/* Search bar in place of role filter */}
+        <div style={{ position:'relative' }}>
+          <input
+            type="text"
+            placeholder="Search roles…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              ...selStyle, cursor:'text',
+              paddingLeft:40,
+            }}
+          />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9B9690" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}>
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
         {[
-          [roleFilter, setRoleFilter, roleOptions],
           [indFilter,  setIndFilter,  INDUSTRIES],
           [typeFilter, setTypeFilter, COMPANY_TYPES],
           [cityFilter, setCityFilter, CITIES_FILTER],
@@ -359,8 +393,37 @@ const BrowseView = ({ onTitleClick }) => {
       ) : grouped.length > 0 ? (
         <>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
-            {grouped.map((g, i) => <SalaryCard key={i} entry={g} onClick={onTitleClick ? () => onTitleClick({ job_title: g.job_title, industry: g.industry }) : undefined}/>)}
+            {pageSlice.map((g, i) => <SalaryCard key={i} entry={g} onClick={onTitleClick ? () => onTitleClick({ job_title: g.job_title, industry: g.industry }) : undefined}/>)}
           </div>
+          {totalPages > 1 && (
+            <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:12, marginTop:40 }}>
+              <button
+                onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo(0, 0); }}
+                disabled={page === 1}
+                style={{
+                  padding:'9px 20px', borderRadius:999, border:'1.5px solid #E0DBD4',
+                  background: page === 1 ? '#F4F2EF' : '#fff',
+                  color: page === 1 ? '#C0BAB2' : '#1A1916',
+                  fontFamily:'DM Sans', fontSize:13, fontWeight:500,
+                  cursor: page === 1 ? 'default' : 'pointer',
+                }}
+              >← Prev</button>
+              <span style={{ fontSize:13, color:'#6B6660' }}>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo(0, 0); }}
+                disabled={page === totalPages}
+                style={{
+                  padding:'9px 20px', borderRadius:999, border:'1.5px solid #E0DBD4',
+                  background: page === totalPages ? '#F4F2EF' : '#fff',
+                  color: page === totalPages ? '#C0BAB2' : '#1A1916',
+                  fontFamily:'DM Sans', fontSize:13, fontWeight:500,
+                  cursor: page === totalPages ? 'default' : 'pointer',
+                }}
+              >Next →</button>
+            </div>
+          )}
         </>
       ) : (
         <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4' }}>
@@ -783,7 +846,7 @@ const CopyBtn = () => {
 };
 
 // ─── Submit View ──────────────────────────────────────────────────────────────
-const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
+const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
     experience:'', city:'', currency:'EGP', salaryType:'net',
@@ -795,6 +858,13 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
   const [errors,     setErrors]     = useState({});
   const [apiError,   setApiError]   = useState('');
   const [benchmark,  setBenchmark]  = useState(null);
+  const [jiggling,   setJiggling]   = useState(false);
+
+  useEffect(() => {
+    if (!jiggleCount) return;
+    setJiggling(false);
+    requestAnimationFrame(() => requestAnimationFrame(() => setJiggling(true)));
+  }, [jiggleCount]);
 
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v, ...(k === 'industry' ? { industrySub:'' } : {}) }));
@@ -1011,7 +1081,11 @@ const SubmitView = ({ showGate, onBrowse, onGoCalculate }) => {
     <div style={{ maxWidth:600, margin:'0 auto', padding:'40px 24px 80px' }}>
 
       {showGate && (
-        <div style={{ background:'#1A1916', color:'#F4F2EF', borderRadius:16, padding:'20px 24px', marginBottom:36, lineHeight:1.7 }}>
+        <div
+          className={jiggling ? 'gate-jiggle' : ''}
+          onAnimationEnd={() => setJiggling(false)}
+          style={{ background:'#1A1916', color:'#F4F2EF', borderRadius:16, padding:'20px 24px', marginBottom:36, lineHeight:1.7 }}
+        >
           <div style={{ fontWeight:500, marginBottom:6 }}>Browsing requires submitting first.</div>
           <div style={{ fontSize:14, color:'#C8C4BC' }}>
             One submission unlocks unlimited browsing. This keeps the data fed and protects the integrity of the database — only contributors see contributors&#39; data.
@@ -1407,6 +1481,7 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
 const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
   const [activeTab,   setActiveTab]   = useState(initialTab || 'submit');
   const [gated,       setGated]       = useState(initialGate || false);
+  const [jiggleCount, setJiggleCount] = useState(0);
   const [calcPrefill, setCalcPrefill] = useState(null);
   const [detailTitle, setDetailTitle] = useState(null);
 
@@ -1418,7 +1493,11 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
       setCalcPrefill(null); setActiveTab('calculate'); setGated(false); return;
     }
     if (key === 'browse' && !hasSubmitted()) {
-      setActiveTab('submit'); setGated(true);
+      if (activeTab === 'submit' && gated) {
+        setJiggleCount(c => c + 1);
+      } else {
+        setActiveTab('submit'); setGated(true);
+      }
     } else {
       setActiveTab(key); setGated(false);
     }
@@ -1468,7 +1547,7 @@ const UtilityShell = ({ onGoHome, initialTab, initialGate }) => {
 
       {activeTab === 'browse' && !detailTitle && <BrowseView onTitleClick={onTitleClick}/>}
       {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { setDetailTitle(null); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
-      {activeTab === 'submit'    && <SubmitView showGate={gated} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
+      {activeTab === 'submit'    && <SubmitView showGate={gated} jiggleCount={jiggleCount} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
       {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
     </div>
   );
