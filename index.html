@@ -1751,35 +1751,43 @@ const LandingPage = ({ onEnter }) => {
       </nav>
 
       {/* ── Hero ── */}
-      <section style={{ minHeight:'100vh', display:'flex', alignItems:'center' }}>
+      <section style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
 
-        {/* ── Split: left text+CTAs / right card ── */}
-        <div className="hero-split" style={{
-          display:'flex', alignItems:'center',
-          maxWidth:1100, margin:'0 auto', width:'100%',
-          padding:'140px 48px 96px', gap:64,
+        {/* Text block */}
+        <div style={{
+          maxWidth:1100, margin:'0 auto', width:'100%', padding:'160px 48px 24px',
           opacity: heroVisible ? 1 : 0,
           transform: heroVisible ? 'none' : 'translateY(24px)',
           transition:'opacity 0.7s ease, transform 0.7s ease',
         }}>
+          <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', marginBottom:32, textTransform:'uppercase' }}>
+            Egyptian salaries, in the open
+          </div>
+          <h1 style={{
+            fontFamily:'Playfair Display',
+            fontSize:'clamp(56px, 8vw, 112px)',
+            fontWeight:500, lineHeight:1.05, letterSpacing:'-0.03em',
+            marginBottom:16, maxWidth:820,
+          }}>
+            Stop negotiating<br/>
+            in the <em style={{ fontStyle:'italic', color:'#3A9D8A' }}>dark.</em>
+          </h1>
+          <p style={{ fontSize:'clamp(16px, 1.8vw, 20px)', color:'#6B6660', lineHeight:1.75, maxWidth:520, margin:0 }}>
+            A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
+          </p>
+        </div>
 
-          {/* Left — all content */}
-          <div style={{ flex:1, display:'flex', flexDirection:'column' }}>
-            <div style={{ fontSize:13, fontWeight:500, letterSpacing:'0.10em', color:'#3A9D8A', marginBottom:24, textTransform:'uppercase' }}>
-              Egyptian salaries, in the open
-            </div>
-            <h1 style={{
-              fontFamily:'Playfair Display',
-              fontSize:'clamp(56px, 8vw, 112px)',
-              fontWeight:500, lineHeight:1.05, letterSpacing:'-0.03em',
-              marginBottom:20, maxWidth:820,
-            }}>
-              Stop negotiating<br/>
-              in the <em style={{ fontStyle:'italic', color:'#3A9D8A' }}>dark.</em>
-            </h1>
-            <p style={{ fontSize:'clamp(16px, 1.8vw, 20px)', color:'#6B6660', lineHeight:1.75, maxWidth:520, margin:'0 0 32px' }}>
-              A crowdsourced, fully anonymous salary database built for Egypt. Browse real ranges. Share yours. Make the next offer fairer.
-            </p>
+        {/* ── Split: left CTAs / right card ── */}
+        <div className="hero-split" style={{
+          flex:1, display:'flex', alignItems:'flex-start',
+          maxWidth:1100, margin:'0 auto', width:'100%',
+          padding:'24px 48px 96px', gap:64,
+          opacity: heroVisible ? 1 : 0,
+          transition:'opacity 1s ease 0.25s',
+        }}>
+
+          {/* Left — CTAs */}
+          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:0 }}>
             <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:20 }}>
               <Pill variant="filled" onClick={() => onEnter('submit')} style={{ padding:'14px 32px', fontSize:16 }}>Share anonymously</Pill>
               <Pill variant="ghost"  onClick={() => onEnter('browse')} style={{ padding:'14px 32px', fontSize:16 }}>Browse salaries →</Pill>
@@ -1795,7 +1803,7 @@ const LandingPage = ({ onEnter }) => {
           </div>
 
           {/* Right — tilted card */}
-          <div className="hero-card-outer" style={{ flex:'0 0 440px', display:'flex', flexDirection:'column', alignItems:'stretch', gap:20, transform:'translateX(148px) translateY(-62px)' }}>
+          <div className="hero-card-outer" style={{ flex:'0 0 440px', display:'flex', flexDirection:'column', alignItems:'stretch', gap:20, transform:'translateX(148px) translateY(-130px)' }}>
             <div className="hero-card-wrap" style={{
               borderRadius:20,
               boxShadow:'0 32px 80px rgba(58,157,138,0.18), 0 8px 24px rgba(0,0,0,0.10)',
