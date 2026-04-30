@@ -215,7 +215,13 @@ const parseHash = () => {
 
 const navigate = (route, { replace = false } = {}) => {
   const target = hashFor(route);
-  if (window.location.hash === target) return;
+  if (window.location.hash === target) {
+    // Hash is already correct but the visible view may be stale (e.g. gating
+    // state changed in localStorage without a hash change). Dispatch a
+    // synthetic hashchange so listeners re-evaluate and re-render.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    return;
+  }
   if (replace) {
     const url = window.location.pathname + window.location.search + target;
     window.history.replaceState(null, '', url);
