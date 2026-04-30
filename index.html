@@ -177,7 +177,7 @@ const INDUSTRY_SUBS = {
 
 const daysAgo = (ts) => Math.max(0, Math.floor((Date.now() - new Date(ts)) / 86400000));
 const fmt     = (n)  => Math.round(n).toLocaleString();
-const CURRENCY_SYMBOL = { EGP: 'E£', USD: '$', EUR: '€', GBP: '£', 'USD-pegged': 'E£' };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£' };
 const currSym = (c)  => CURRENCY_SYMBOL[c] ?? '';
 
 // ─── Hash-based routing ───────────────────────────────────────────────────────
