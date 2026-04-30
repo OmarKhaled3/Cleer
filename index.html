@@ -79,6 +79,19 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo } = React;
 
+/* ─── Supabase migration (run once in Supabase SQL editor) ───────────────────
+   ALTER TABLE submissions
+     ADD COLUMN IF NOT EXISTS is_flagged             boolean NOT NULL DEFAULT false,
+     ADD COLUMN IF NOT EXISTS flag_reason            text,
+     ADD COLUMN IF NOT EXISTS currency               text    NOT NULL DEFAULT 'EGP',
+     ADD COLUMN IF NOT EXISTS title_from_suggestion  boolean NOT NULL DEFAULT false;
+   -- Backfill existing rows (defaults already populate new rows; NOT NULL is
+   -- safe because all new columns have defaults).
+   UPDATE submissions SET currency   = 'EGP' WHERE currency   IS NULL;
+   UPDATE submissions SET is_flagged = false WHERE is_flagged IS NULL;
+   -- TODO: Add Supabase edge function for IP-based dedup once we hit 500+ submissions
+*/
+
 // ─── Supabase client ──────────────────────────────────────────────────────────
 //  Replace both values with your Supabase project URL and anon key,
 //  found in: Project Settings → API.
@@ -180,6 +193,70 @@ const fmt     = (n)  => Math.round(n).toLocaleString();
 const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£' };
 const currSym = (c)  => CURRENCY_SYMBOL[c] ?? '';
 
+// ─── Submission validation rules ─────────────────────────────────────────────
+const SUPPORTED_CURRENCIES = ['EGP', 'USD', 'EUR', 'GBP'];
+const CURRENCY_LIMITS = {
+  EGP: { min: 1000, max: 10000000 },
+  USD: { min: 100,  max: 200000   },
+  EUR: { min: 100,  max: 200000   },
+  GBP: { min: 100,  max: 200000   },
+};
+const CURRENCY_PLACEHOLDER = {
+  EGP: 'e.g. 25,000 per month',
+  USD: 'e.g. 1,500 per month',
+  EUR: 'e.g. 1,400 per month',
+  GBP: 'e.g. 1,200 per month',
+};
+const TITLE_BLOCKLIST = new Set([
+  'unemployed', 'none', 'n/a', 'na', 'test', 'asdf', 'qwerty',
+  'x', 'xx', 'xxx', 'abc', 'abcd', 'tbd', 'no', 'nothing',
+  'null', 'undefined', 'skip',
+]);
+const SENIOR_TITLE_KEYWORDS = ['senior', 'lead', 'manager', 'director', 'head', 'chief', 'vp'];
+const EXP_YEARS_MIN = {
+  '0–1 yrs': 0,  '1–3 yrs': 1,  '2–4 yrs': 2,  '3–5 yrs': 3,
+  '5–7 yrs': 5,  '7–10 yrs': 7, '10+ yrs': 10,
+};
+const containsArabic = (s) => /[؀-ۿ]/.test(s);
+const hasVowel       = (s) => /[aeiouy]/i.test(s);
+
+const validateTitle = (raw, fromSuggestion) => {
+  const t = (raw || '').trim();
+  if (t.length < 3) return 'Please enter your actual job title (e.g., Software Engineer, Accountant, Marketing Manager)';
+  if (fromSuggestion) return null;
+  if (TITLE_BLOCKLIST.has(t.toLowerCase())) return 'Please enter your actual job title (e.g., Software Engineer, Accountant, Marketing Manager)';
+  if (!containsArabic(t) && !hasVowel(t))   return 'Please enter your actual job title (e.g., Software Engineer, Accountant, Marketing Manager)';
+  return null;
+};
+
+const validateSalary = (raw, currency) => {
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v) || v <= 0) return 'Please enter a realistic monthly salary';
+  const lim = CURRENCY_LIMITS[currency] || CURRENCY_LIMITS.EGP;
+  if (v < lim.min) return `Please enter a realistic monthly salary (minimum ${lim.min.toLocaleString()} ${currency})`;
+  if (v > lim.max) return 'That seems too high. Please double-check the value.';
+  return null;
+};
+
+const isLikelyEgpTypo = (raw, currency) => {
+  if (currency !== 'EGP') return false;
+  const v = parseFloat(raw);
+  return Number.isFinite(v) && v >= 100 && v <= 999;
+};
+
+const computeFlag = ({ title, currency, salaryValue, experience }) => {
+  const v = parseFloat(salaryValue);
+  if (currency === 'EGP' && v >= 1000 && v <= 4999) return 'low_salary';
+  if (currency !== 'EGP' && v >= 100 && v <= 299)   return 'low_salary';
+  const titleLc = (title || '').toLowerCase();
+  const minYears = EXP_YEARS_MIN[experience];
+  if (SENIOR_TITLE_KEYWORDS.some(k => titleLc.includes(k)) && minYears != null && minYears < 2) {
+    return 'outlier:senior_no_experience';
+  }
+  if (minYears != null && minYears > 40) return 'outlier:experience_too_high';
+  return null;
+};
+
 const toEGP = (amount, currency, rates) => {
   if (!currency || currency === 'EGP') return amount;
   const r = rates && rates[currency];
@@ -201,6 +278,34 @@ const useExchangeRates = () => {
     });
   }, []);
   return rates;
+};
+
+// Returns distinct job titles ordered by submission count (desc).
+// [{ title: 'Software Engineer', count: 24 }, ...]
+const useDistinctTitles = () => {
+  const [titles, setTitles] = React.useState([]);
+  React.useEffect(() => {
+    if (!db) return;
+    db.from('submissions')
+      .select('job_title')
+      .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
+      .then(({ data }) => {
+        if (!data) return;
+        const counts = new Map();
+        data.forEach(r => {
+          const raw = (r.job_title || '').trim();
+          if (!raw) return;
+          const key = raw.toLowerCase();
+          const prev = counts.get(key);
+          if (prev) prev.count += 1;
+          else counts.set(key, { title: raw, count: 1 });
+        });
+        const arr = Array.from(counts.values()).sort((a, b) => b.count - a.count);
+        setTitles(arr);
+      });
+  }, []);
+  return titles;
 };
 
 // ─── Hash-based routing ───────────────────────────────────────────────────────
@@ -402,6 +507,7 @@ const BrowseView = ({ route }) => {
     db.from('submissions')
       .select('*')
       .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setLoadError(error.message); setRows([]); }
@@ -612,6 +718,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
     db.from('submissions')
       .select('*')
       .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
       .ilike('job_title', job_title.trim())
       .then(({ data }) => setRows(data || []));
   }, [job_title]);
@@ -973,20 +1080,28 @@ const CopyBtn = () => {
 };
 
 // ─── Submit View ──────────────────────────────────────────────────────────────
-const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
-  const fxRates = useExchangeRates();
+const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate, onGoLimitedAccess }) => {
+  const fxRates    = useExchangeRates();
+  const knownTitles = useDistinctTitles();
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
     experience:'', city:'', currency:'EGP', salaryType:'net',
     base:'', compensationType:'Base salary only',
   });
-  const [step,       setStep]       = useState(1);
-  const [submitted,  setSubmitted]  = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [errors,     setErrors]     = useState({});
-  const [apiError,   setApiError]   = useState('');
-  const [benchmark,  setBenchmark]  = useState(null);
-  const [jiggling,   setJiggling]   = useState(false);
+  const [step,            setStep]            = useState(1);
+  const [submitted,       setSubmitted]       = useState(false);
+  const [submitting,      setSubmitting]      = useState(false);
+  const [errors,          setErrors]          = useState({});
+  const [apiError,        setApiError]        = useState('');
+  const [benchmark,       setBenchmark]       = useState(null);
+  const [jiggling,        setJiggling]        = useState(false);
+  const [titleQuery,      setTitleQuery]      = useState('');
+  const [showTitleDropdown, setShowTitleDropdown] = useState(false);
+  const [titleFromSuggestion, setTitleFromSuggestion] = useState(false);
+  const [typoModal,       setTypoModal]       = useState(null);
+  const [rateLimitWarn,   setRateLimitWarn]   = useState(false);
+  const [overrideRateLimit, setOverrideRateLimit] = useState(false);
+  const titleBlurTimer = useRef(null);
 
   useEffect(() => {
     if (!jiggleCount) return;
@@ -994,24 +1109,57 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
     requestAnimationFrame(() => requestAnimationFrame(() => setJiggling(true)));
   }, [jiggleCount]);
 
+  // Debounce title query for autocomplete filtering.
+  useEffect(() => {
+    const id = setTimeout(() => setTitleQuery(form.title), 100);
+    return () => clearTimeout(id);
+  }, [form.title]);
+
+  const titleSuggestions = useMemo(() => {
+    const q = titleQuery.trim().toLowerCase();
+    if (!q) return [];
+    return knownTitles
+      .filter(t => t.title.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [titleQuery, knownTitles]);
+
+  // Lock body scroll while typo modal is open.
+  useEffect(() => {
+    if (!typoModal) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') e.preventDefault(); };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [typoModal]);
+
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v, ...(k === 'industry' ? { industrySub:'' } : {}) }));
-    setErrors(er => ({ ...er, [k]: false }));
+    setErrors(er => ({ ...er, [k]: null }));
     setApiError('');
+    if (k === 'title') setTitleFromSuggestion(false);
   };
 
   const validateStep = (s) => {
     const e = {};
     if (s === 1) {
-      if (!form.title.trim()) e.title = true;
-      if (!form.industry)     e.industry = true;
+      const titleErr = validateTitle(form.title, titleFromSuggestion);
+      if (titleErr) e.title = titleErr;
+      if (!form.industry) e.industry = 'Required';
     } else if (s === 2) {
-      if (!form.experience)   e.experience = true;
+      if (!form.experience) e.experience = 'Required';
     } else {
-      if (!form.companyType)  e.companyType = true;
-      if (!form.companySize)  e.companySize = true;
-      if (!form.city)         e.city = true;
-      if (!form.base)         e.base = true;
+      if (!form.companyType) e.companyType = 'Required';
+      if (!form.companySize) e.companySize = 'Required';
+      if (!form.city)        e.city        = 'Required';
+      if (!form.base)        e.base        = 'Required';
+      else {
+        const salErr = validateSalary(form.base, form.currency);
+        if (salErr) e.base = salErr;
+      }
     }
     return e;
   };
@@ -1026,6 +1174,25 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
 
   const handleBack = () => { setStep(s => s - 1); setErrors({}); window.scrollTo(0, 0); };
 
+  const handleTitleBlur = () => {
+    titleBlurTimer.current = setTimeout(() => {
+      setShowTitleDropdown(false);
+      const titleErr = validateTitle(form.title, titleFromSuggestion);
+      if (titleErr) setErrors(er => ({ ...er, title: titleErr }));
+    }, 150);
+  };
+  const cancelTitleBlur = () => {
+    if (titleBlurTimer.current) clearTimeout(titleBlurTimer.current);
+  };
+
+  const pickSuggestion = (title) => {
+    cancelTitleBlur();
+    setForm(f => ({ ...f, title }));
+    setTitleFromSuggestion(true);
+    setShowTitleDropdown(false);
+    setErrors(er => ({ ...er, title: null }));
+  };
+
   const fetchBenchmark = async (title, city, industry, experience, base, salaryType) => {
     const userVal = parseInt(base);
     const userNet = salaryType === 'gross' ? calcTakeHome(userVal).net : userVal;
@@ -1034,6 +1201,7 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
       .from('submissions')
       .select('salary_min, salary_max, currency, salary_type')
       .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
       .ilike('job_title', title.trim())
       .eq('industry', industry)
       .eq('years_experience', experience)
@@ -1051,26 +1219,33 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
     setBenchmark({ count: n, pct, above, marketMid: Math.round(marketMid) });
   };
 
-  const handleSubmit = async (ev) => {
-    ev.preventDefault();
-    const errs = validateStep(3);
-    if (Object.keys(errs).length) { setErrors(errs); return; }
+  const finishSubmit = async (salaryValue) => {
     setSubmitting(true);
+    setApiError('');
+    const flagReason = computeFlag({
+      title:       form.title,
+      currency:    form.currency,
+      salaryValue,
+      experience:  form.experience,
+    });
 
     if (db) {
       const { error } = await db.from('submissions').insert({
-        job_title:        form.title.trim(),
-        industry:         form.industry,
-        industry_sub:     form.industrySub || null,
-        company_type:     form.companyType,
-        company_size:     form.companySize,
-        years_experience: form.experience,
-        city:             form.city,
-        salary_min:        parseInt(form.base, 10),
-        salary_max:        parseInt(form.base, 10),
-        currency:          form.currency,
-        salary_type:       form.salaryType,
-        compensation_type: form.compensationType,
+        job_title:             form.title.trim(),
+        industry:              form.industry,
+        industry_sub:          form.industrySub || null,
+        company_type:          form.companyType,
+        company_size:          form.companySize,
+        years_experience:      form.experience,
+        city:                  form.city,
+        salary_min:            parseInt(salaryValue, 10),
+        salary_max:            parseInt(salaryValue, 10),
+        currency:              form.currency,
+        salary_type:           form.salaryType,
+        compensation_type:     form.compensationType,
+        is_flagged:            !!flagReason,
+        flag_reason:           flagReason,
+        title_from_suggestion: titleFromSuggestion,
       });
       if (error) {
         setApiError('Something went wrong. Please try again.');
@@ -1080,13 +1255,76 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
     }
 
     localStorage.setItem('cu_has_submitted', 'true');
-    const salVal = parseInt(form.base, 10);
-    localStorage.setItem('cu_salary', String(Math.round(
-      form.salaryType === 'net' ? salVal : calcTakeHome(salVal).net
-    )));
+    localStorage.setItem('cu_last_submission_at', new Date().toISOString());
+    localStorage.removeItem('cu_limited_access');
+    localStorage.removeItem('cu_limited_records');
+    if (form.currency === 'EGP') {
+      const salVal = parseInt(salaryValue, 10);
+      localStorage.setItem('cu_salary', String(Math.round(
+        form.salaryType === 'net' ? salVal : calcTakeHome(salVal).net
+      )));
+    }
     setSubmitted(true);
     setSubmitting(false);
-    fetchBenchmark(form.title, form.city, form.industry, form.experience, form.base, form.salaryType);
+    fetchBenchmark(form.title, form.city, form.industry, form.experience, salaryValue, form.salaryType);
+  };
+
+  const handleSubmit = async (ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    const errs = validateStep(3);
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    // EGP typo modal: if value is 100–999, prompt the user before applying
+    // currency floor validation (which would reject 100–999 as below 1,000 EGP).
+    if (isLikelyEgpTypo(form.base, form.currency)) {
+      setTypoModal({ value: parseInt(form.base, 10) });
+      return;
+    }
+
+    // Rate limit: warn (don't block) if a recent submission exists.
+    if (!overrideRateLimit) {
+      const last = localStorage.getItem('cu_last_submission_at');
+      if (last) {
+        const ageMs = Date.now() - new Date(last).getTime();
+        if (ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000) {
+          setRateLimitWarn(true);
+          return;
+        }
+      }
+    }
+
+    finishSubmit(form.base);
+  };
+
+  const handleTypoYes = () => {
+    const corrected = String(parseInt(form.base, 10) * 1000);
+    setForm(f => ({ ...f, base: corrected }));
+    setTypoModal(null);
+    // Re-run rate limit + submit with corrected value.
+    if (!overrideRateLimit) {
+      const last = localStorage.getItem('cu_last_submission_at');
+      if (last) {
+        const ageMs = Date.now() - new Date(last).getTime();
+        if (ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000) {
+          setRateLimitWarn(true);
+          return;
+        }
+      }
+    }
+    finishSubmit(corrected);
+  };
+
+  const handleTypoNo = () => {
+    setTypoModal(null);
+    // Proceed to floor check — the entered value (100–999) is below the
+    // EGP floor of 1,000 and will fail.
+    setErrors(er => ({ ...er, base: validateSalary(form.base, form.currency) }));
+  };
+
+  const handleSubmitAnyway = () => {
+    setOverrideRateLimit(true);
+    setRateLimitWarn(false);
+    finishSubmit(form.base);
   };
 
   const L   = { fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'#9B9690', display:'block', marginBottom:6 };
@@ -1256,16 +1494,56 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
 
           <div>
             <label style={L}>JOB TITLE</label>
-            <input value={form.title} onChange={e=>set('title',e.target.value)}
-              placeholder="e.g. Senior Product Manager" style={inp(errors.title)}/>
-            {errors.title && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            <div style={{ position:'relative' }}>
+              <input
+                value={form.title}
+                onChange={e => { set('title', e.target.value); setShowTitleDropdown(true); }}
+                onFocus={() => setShowTitleDropdown(true)}
+                onBlur={handleTitleBlur}
+                placeholder="e.g. Senior Product Manager"
+                autoComplete="off"
+                style={inp(errors.title)}
+              />
+              {showTitleDropdown && titleSuggestions.length > 0 && (
+                <div
+                  onMouseDown={cancelTitleBlur}
+                  style={{
+                    position:'absolute', left:0, right:0, top:'calc(100% + 4px)', zIndex:50,
+                    background:'#fff', border:'1.5px solid #E0DBD4', borderRadius:12,
+                    boxShadow:'0 8px 24px rgba(0,0,0,0.10)', overflow:'hidden',
+                  }}
+                >
+                  {titleSuggestions.map((s, i) => (
+                    <button
+                      key={s.title}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s.title); }}
+                      style={{
+                        display:'flex', justifyContent:'space-between', alignItems:'center',
+                        width:'100%', padding:'10px 14px', background:'#fff',
+                        border:'none',
+                        borderBottom: i < titleSuggestions.length - 1 ? '1px solid #F2EFE9' : 'none',
+                        fontFamily:'DM Sans', fontSize:14, color:'#1A1916',
+                        cursor:'pointer', textAlign:'left',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background='#F7F5F2'}
+                      onMouseLeave={e => e.currentTarget.style.background='#fff'}
+                    >
+                      <span>{s.title}</span>
+                      <span style={{ fontSize:12, color:'#9B9690' }}>({s.count})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {errors.title && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.title}</div>}
           </div>
 
           <div className="two-col" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             <div>
               <label style={L}>INDUSTRY</label>
               <Sel field="industry" options={Object.keys(INDUSTRY_SUBS)} placeholder="Select industry"/>
-              {errors.industry && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+              {errors.industry && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.industry}</div>}
             </div>
             <div>
               <label style={L}>SUB-CATEGORY</label>
@@ -1289,7 +1567,7 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
           <div>
             <label style={L}>YEARS OF EXPERIENCE</label>
             <Sel field="experience" options={EXP_RANGES} placeholder="Select range"/>
-            {errors.experience && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            {errors.experience && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.experience}</div>}
           </div>
 
           <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
@@ -1318,19 +1596,19 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
             <div>
               <label style={L}>COMPANY TYPE</label>
               <Sel field="companyType" options={["Multinational","Local","Startup"]} placeholder="Select type"/>
-              {errors.companyType && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+              {errors.companyType && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.companyType}</div>}
             </div>
             <div>
               <label style={L}>COMPANY SIZE</label>
               <Sel field="companySize" options={COMPANY_SIZES} placeholder="No. of employees"/>
-              {errors.companySize && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+              {errors.companySize && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.companySize}</div>}
             </div>
           </div>
 
           <div>
             <label style={L}>CITY</label>
             <Sel field="city" options={CITIES_FORM} placeholder="Select city"/>
-            {errors.city && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>}
+            {errors.city && <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.city}</div>}
           </div>
 
           {/* Base salary */}
@@ -1368,22 +1646,33 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'center' }}>
               <input type="number" value={form.base} onChange={e=>set('base',e.target.value)}
-                placeholder="e.g. 25000" style={inp(errors.base)}/>
+                placeholder={CURRENCY_PLACEHOLDER[form.currency] || 'e.g. 25,000 per month'} style={inp(errors.base)}/>
               <div style={{ position:'relative', minWidth:120 }}>
                 <select value={form.currency} onChange={e=>set('currency',e.target.value)} style={{
                   ...inp(false), minWidth:120, cursor:'pointer', appearance:'none', WebkitAppearance:'none',
                 }}>
-                  <option>EGP</option>
-                  <option>USD</option>
-                  <option>EUR</option>
-                  <option>GBP</option>
-                  <option>USD-pegged</option>
+                  {SUPPORTED_CURRENCIES.map(c => <option key={c}>{c}</option>)}
                 </select>
                 <Chevron/>
               </div>
             </div>
+            {(() => {
+              const v = parseFloat(form.base);
+              if (!Number.isFinite(v) || v <= 0) return null;
+              const typo = isLikelyEgpTypo(form.base, form.currency);
+              return (
+                <div style={{ fontSize:12, color:'#9B9690', marginTop:6, lineHeight:1.5 }}>
+                  You entered: {fmt(v)} {form.currency}
+                  {typo && (
+                    <span style={{ color:'#B57C2A', marginLeft:6 }}>
+                      <em>(Did you mean {(v * 1000).toLocaleString()} EGP?)</em>
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {errors.base && (
-              <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>Required</div>
+              <div style={{ fontSize:12, color:'#E8826A', marginTop:5 }}>{errors.base}</div>
             )}
           </div>
 
@@ -1417,6 +1706,23 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
             </div>
           )}
 
+          {rateLimitWarn && (
+            <div style={{
+              fontSize:13, color:'#7A6020', padding:'14px 16px',
+              background:'#FBF5E5', border:'1.5px solid #E8D38A', borderRadius:12, lineHeight:1.6,
+            }}>
+              <div style={{ marginBottom:10 }}>
+                You&#39;ve already submitted recently. Multiple submissions from the same browser are
+                limited to prevent gaming.
+              </div>
+              <button type="button" onClick={handleSubmitAnyway} style={{
+                padding:'8px 16px', borderRadius:999, border:'1.5px solid #C8A653',
+                background:'#fff', color:'#7A6020', fontFamily:'DM Sans',
+                fontSize:13, fontWeight:500, cursor:'pointer',
+              }}>Submit anyway</button>
+            </div>
+          )}
+
           <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
             <Pill type="submit" variant="filled"
               style={{ padding:'13px 32px', fontSize:15, opacity: submitting ? 0.7 : 1 }}>
@@ -1425,6 +1731,118 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
             <BackBtn/>
           </div>
         </form>
+      )}
+
+      {/* "Browse with limited access" — escape valve for users with no data to share */}
+      {!submitted && onGoLimitedAccess && (
+        <div style={{ marginTop:28, textAlign:'center', fontSize:13, color:'#9B9690', lineHeight:1.7 }}>
+          Don&#39;t have salary data to share yet?{' '}
+          <button type="button" onClick={onGoLimitedAccess} style={{
+            background:'none', border:'none', padding:0, cursor:'pointer',
+            fontFamily:'DM Sans', fontSize:13, color:'#6B6660',
+            textDecoration:'underline', textUnderlineOffset:'3px',
+          }}
+          onMouseEnter={e => e.currentTarget.style.color = '#3A9D8A'}
+          onMouseLeave={e => e.currentTarget.style.color = '#6B6660'}
+          >Browse with limited access</button>
+        </div>
+      )}
+
+      {/* EGP typo confirmation modal — non-dismissable on outside click / Escape */}
+      {typoModal && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position:'fixed', inset:0, zIndex:200,
+            background:'rgba(26,25,22,0.55)', backdropFilter:'blur(4px)',
+            display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+          }}
+        >
+          <div style={{
+            background:'#fff', borderRadius:20, padding:'28px 28px 24px',
+            maxWidth:420, width:'100%', boxShadow:'0 24px 60px rgba(0,0,0,0.25)',
+          }}>
+            <div style={{ fontFamily:'Playfair Display', fontSize:22, fontWeight:500, marginBottom:10 }}>
+              Just to confirm…
+            </div>
+            <div style={{ fontSize:15, color:'#6B6660', lineHeight:1.7, marginBottom:24 }}>
+              You entered <strong style={{ color:'#1A1916' }}>{fmt(typoModal.value)} EGP</strong>.
+              Did you mean <strong style={{ color:'#1A1916' }}>{fmt(typoModal.value * 1000)} EGP</strong>?
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              <button type="button" onClick={handleTypoYes} style={{
+                padding:'13px 20px', borderRadius:999, border:'none', cursor:'pointer',
+                background:'#3A9D8A', color:'#fff', fontFamily:'DM Sans',
+                fontSize:14, fontWeight:500,
+              }}>Yes, that was a typo</button>
+              <button type="button" onClick={handleTypoNo} style={{
+                padding:'13px 20px', borderRadius:999, border:'1.5px solid #C8C4BC',
+                background:'#fff', color:'#1A1916', fontFamily:'DM Sans',
+                fontSize:14, fontWeight:500, cursor:'pointer',
+              }}>No, it&#39;s actually {fmt(typoModal.value)}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Limited Browse View (5-record session-locked teaser) ────────────────────
+const LimitedBrowseView = ({ onGoSubmit }) => {
+  const [records, setRecords] = useState(null);
+
+  useEffect(() => {
+    const cached = localStorage.getItem('cu_limited_records');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRecords(parsed);
+          return;
+        }
+      } catch (_) { /* fall through and refetch */ }
+    }
+    if (!db) { setRecords([]); return; }
+    db.from('submissions')
+      .select('*')
+      .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
+      .then(({ data }) => {
+        if (!data || data.length === 0) { setRecords([]); return; }
+        const picked = [...data].sort(() => Math.random() - 0.5).slice(0, 5);
+        try { localStorage.setItem('cu_limited_records', JSON.stringify(picked)); } catch (_) {}
+        setRecords(picked);
+      });
+  }, []);
+
+  return (
+    <div style={{ maxWidth:900, margin:'0 auto', padding:'40px 24px 80px' }}>
+      <div style={{
+        background:'#FBF5E5', border:'1.5px solid #E8D38A', borderRadius:16,
+        padding:'18px 22px', marginBottom:32,
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        gap:16, flexWrap:'wrap',
+      }}>
+        <div style={{ flex:'1 1 240px', fontSize:14, color:'#6B6660', lineHeight:1.65 }}>
+          <strong style={{ color:'#1A1916' }}>Preview mode:</strong>{' '}
+          You&#39;re seeing 5 random submissions. Submit your salary to unlock full access — search,
+          filter, and view the entire database.
+        </div>
+        <Pill variant="filled" onClick={onGoSubmit}>Submit yours</Pill>
+      </div>
+
+      {records === null ? (
+        <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4', fontSize:14 }}>Loading…</div>
+      ) : records.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'80px 0', color:'#B0ABA4' }}>
+          <div style={{ fontFamily:'Playfair Display', fontSize:20, marginBottom:8 }}>Nothing to preview yet</div>
+          <div style={{ fontSize:14 }}>Be the first to share your salary.</div>
+        </div>
+      ) : (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
+          {records.map((r, i) => <SalaryCard key={i} entry={r}/>)}
+        </div>
       )}
     </div>
   );
@@ -1461,6 +1879,7 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
     db.from('submissions')
       .select('job_title, city, industry, company_type, salary_min, salary_max')
       .or('is_visible.eq.true,is_seeded.eq.true')
+      .eq('is_flagged', false)
       .limit(3)
       .then(({ data }) => setPreviewRows(data || []));
   }, [result]);
@@ -1617,18 +2036,22 @@ const UtilityShell = ({ route }) => {
   const [jiggleCount, setJiggleCount] = useState(0);
   const [calcPrefill, setCalcPrefill] = useState(null);
 
-  const hasSubmitted = () => localStorage.getItem('cu_has_submitted') === 'true';
+  const hasSubmitted     = () => localStorage.getItem('cu_has_submitted') === 'true';
+  const hasLimitedAccess = () => localStorage.getItem('cu_limited_access') === 'true';
 
-  // Route → display state. If user routes to browse (or a title within browse)
-  // without having submitted, gate them on the submit tab.
-  const isTitle  = route.view === 'title';
-  const intended = isTitle ? 'browse' : route.view;
-  const gated    = intended === 'browse' && !hasSubmitted();
-  const activeTab = gated ? 'submit' : intended;
-  const detailTitle = isTitle && !gated ? route.titleData : null;
+  // Route → display state.
+  //   If submitted → full browse access.
+  //   Else if cu_limited_access → limited (5-record) browse.
+  //   Else → gated on submit.
+  const isTitle     = route.view === 'title';
+  const intended    = isTitle ? 'browse' : route.view;
+  const limitedMode = !hasSubmitted() && hasLimitedAccess();
+  const gated       = intended === 'browse' && !hasSubmitted() && !limitedMode;
+  const activeTab   = gated ? 'submit' : intended;
+  const detailTitle = isTitle && !gated && !limitedMode ? route.titleData : null;
 
   const switchTab = (key) => {
-    if (key === 'browse' && !hasSubmitted()) {
+    if (key === 'browse' && !hasSubmitted() && !hasLimitedAccess()) {
       // Already gated on submit → jiggle instead of navigating again
       if (activeTab === 'submit' && gated) { setJiggleCount(c => c + 1); return; }
     }
@@ -1642,6 +2065,11 @@ const UtilityShell = ({ route }) => {
     setCalcPrefill({ mode, value: String(value) });
     navigate({ view: 'calculate' });
     window.scrollTo(0,0);
+  };
+  const onGoLimitedAccess = () => {
+    localStorage.setItem('cu_limited_access', 'true');
+    navigate({ view: 'browse' });
+    window.scrollTo(0, 0);
   };
 
   const TABS = [
@@ -1688,9 +2116,18 @@ const UtilityShell = ({ route }) => {
         <div className="shell-nav-spacer" style={{ width:120 }}/>
       </nav>
 
-      {activeTab === 'browse' && !detailTitle && <BrowseView route={route}/>}
-      {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { navigate({ view: 'browse' }); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
-      {activeTab === 'submit'    && <SubmitView showGate={gated} jiggleCount={jiggleCount} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
+      {activeTab === 'browse' && limitedMode && <LimitedBrowseView onGoSubmit={onGoSubmit}/>}
+      {activeTab === 'browse' && !limitedMode && !detailTitle && <BrowseView route={route}/>}
+      {activeTab === 'browse' && !limitedMode &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { navigate({ view: 'browse' }); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
+      {activeTab === 'submit'    && (
+        <SubmitView
+          showGate={gated}
+          jiggleCount={jiggleCount}
+          onBrowse={onBrowseUnlocked}
+          onGoCalculate={onGoCalculateWithPrefill}
+          onGoLimitedAccess={!hasSubmitted() && !hasLimitedAccess() ? onGoLimitedAccess : null}
+        />
+      )}
       {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
     </div>
   );
