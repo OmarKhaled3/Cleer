@@ -257,6 +257,30 @@ const computeFlag = ({ title, currency, salaryValue, experience }) => {
   return null;
 };
 
+// Title-case the user's job title at submit time:
+// "software engineer" → "Software Engineer". Leaves the rest of each word
+// untouched so existing capitalization survives ("iOS" → "IOS", which we
+// accept as a known trade-off rather than lowercasing first).
+const titleCase = (s) => (s || '')
+  .trim()
+  .replace(/\s+/g, ' ')
+  .replace(/(^|[\s\-/])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+
+// Run a Supabase submissions query, transparently retrying without the
+// `is_flagged` filter if the column doesn't exist yet (pre-migration).
+// `build(useFilter)` should return the prepared query (with .select / .or /
+// any extras already chained); we'll add `.eq('is_flagged', false)` based on
+// `useFilter` and resolve the final response.
+const querySubmissions = (build) => {
+  const first = build(true);
+  return first.then((res) => {
+    if (res.error && /is_flagged/i.test(res.error.message || '')) {
+      return build(false);
+    }
+    return res;
+  });
+};
+
 const toEGP = (amount, currency, rates) => {
   if (!currency || currency === 'EGP') return amount;
   const r = rates && rates[currency];
@@ -286,24 +310,26 @@ const useDistinctTitles = () => {
   const [titles, setTitles] = React.useState([]);
   React.useEffect(() => {
     if (!db) return;
-    db.from('submissions')
-      .select('job_title')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .then(({ data }) => {
-        if (!data) return;
-        const counts = new Map();
-        data.forEach(r => {
-          const raw = (r.job_title || '').trim();
-          if (!raw) return;
-          const key = raw.toLowerCase();
-          const prev = counts.get(key);
-          if (prev) prev.count += 1;
-          else counts.set(key, { title: raw, count: 1 });
-        });
-        const arr = Array.from(counts.values()).sort((a, b) => b.count - a.count);
-        setTitles(arr);
+    querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('job_title')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q;
+    }).then(({ data }) => {
+      if (!data) return;
+      const counts = new Map();
+      data.forEach(r => {
+        const raw = (r.job_title || '').trim();
+        if (!raw) return;
+        const key = raw.toLowerCase();
+        const prev = counts.get(key);
+        if (prev) prev.count += 1;
+        else counts.set(key, { title: raw, count: 1 });
       });
+      const arr = Array.from(counts.values()).sort((a, b) => b.count - a.count);
+      setTitles(arr);
+    });
   }, []);
   return titles;
 };
@@ -504,15 +530,16 @@ const BrowseView = ({ route }) => {
 
   useEffect(() => {
     if (!db) { setRows([]); return; }
-    db.from('submissions')
-      .select('*')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) { setLoadError(error.message); setRows([]); }
-        else setRows(data || []);
-      });
+    querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('*')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q.order('created_at', { ascending: false });
+    }).then(({ data, error }) => {
+      if (error) { setLoadError(error.message); setRows([]); }
+      else setRows(data || []);
+    });
   }, []);
 
   const filtered = useMemo(() => (rows || []).filter(r => {
@@ -715,12 +742,13 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
     setShowSalaryPrompt(!saved && hasSubmitted);
     setPromptSalary('');
     if (!db) { setRows([]); return; }
-    db.from('submissions')
-      .select('*')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .ilike('job_title', job_title.trim())
-      .then(({ data }) => setRows(data || []));
+    querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('*')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q.ilike('job_title', job_title.trim());
+    }).then(({ data }) => setRows(data || []));
   }, [job_title]);
 
   const stats = useMemo(() => {
@@ -1197,15 +1225,16 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate, onGoLimite
     const userVal = parseInt(base);
     const userNet = salaryType === 'gross' ? calcTakeHome(userVal).net : userVal;
     if (!db) { setBenchmark({ count: 0 }); return; }
-    const { data } = await db
-      .from('submissions')
-      .select('salary_min, salary_max, currency, salary_type')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .ilike('job_title', title.trim())
-      .eq('industry', industry)
-      .eq('years_experience', experience)
-      .eq('city', city);
+    const { data } = await querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('salary_min, salary_max, currency, salary_type')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q.ilike('job_title', title.trim())
+        .eq('industry', industry)
+        .eq('years_experience', experience)
+        .eq('city', city);
+    });
     const peers = (data || []).map(r => {
       const mid = (r.salary_min + r.salary_max) / 2;
       const egp = toEGP(mid, r.currency, fxRates);
@@ -1222,31 +1251,48 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate, onGoLimite
   const finishSubmit = async (salaryValue) => {
     setSubmitting(true);
     setApiError('');
+    // Capitalize first letter of each word in the title at submit time
+    // (e.g. "software engineer" → "Software Engineer").
+    const casedTitle = titleCase(form.title);
+    if (casedTitle !== form.title) setForm(f => ({ ...f, title: casedTitle }));
+
     const flagReason = computeFlag({
-      title:       form.title,
+      title:       casedTitle,
       currency:    form.currency,
       salaryValue,
       experience:  form.experience,
     });
 
+    let attemptInsert = (includeNewCols) => {
+      const payload = {
+        job_title:         casedTitle,
+        industry:          form.industry,
+        industry_sub:      form.industrySub || null,
+        company_type:      form.companyType,
+        company_size:      form.companySize,
+        years_experience:  form.experience,
+        city:              form.city,
+        salary_min:        parseInt(salaryValue, 10),
+        salary_max:        parseInt(salaryValue, 10),
+        currency:          form.currency,
+        salary_type:       form.salaryType,
+        compensation_type: form.compensationType,
+      };
+      if (includeNewCols) {
+        payload.is_flagged            = !!flagReason;
+        payload.flag_reason           = flagReason;
+        payload.title_from_suggestion = titleFromSuggestion;
+      }
+      return db.from('submissions').insert(payload);
+    };
+
     if (db) {
-      const { error } = await db.from('submissions').insert({
-        job_title:             form.title.trim(),
-        industry:              form.industry,
-        industry_sub:          form.industrySub || null,
-        company_type:          form.companyType,
-        company_size:          form.companySize,
-        years_experience:      form.experience,
-        city:                  form.city,
-        salary_min:            parseInt(salaryValue, 10),
-        salary_max:            parseInt(salaryValue, 10),
-        currency:              form.currency,
-        salary_type:           form.salaryType,
-        compensation_type:     form.compensationType,
-        is_flagged:            !!flagReason,
-        flag_reason:           flagReason,
-        title_from_suggestion: titleFromSuggestion,
-      });
+      let { error } = await attemptInsert(true);
+      // If the new columns don't exist yet (pre-migration), retry with the
+      // legacy payload so submissions still go through.
+      if (error && /is_flagged|flag_reason|title_from_suggestion/i.test(error.message || '')) {
+        ({ error } = await attemptInsert(false));
+      }
       if (error) {
         setApiError('Something went wrong. Please try again.');
         setSubmitting(false);
@@ -1266,7 +1312,7 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate, onGoLimite
     }
     setSubmitted(true);
     setSubmitting(false);
-    fetchBenchmark(form.title, form.city, form.industry, form.experience, salaryValue, form.salaryType);
+    fetchBenchmark(casedTitle, form.city, form.industry, form.experience, salaryValue, form.salaryType);
   };
 
   const handleSubmit = async (ev) => {
@@ -1804,16 +1850,18 @@ const LimitedBrowseView = ({ onGoSubmit }) => {
       } catch (_) { /* fall through and refetch */ }
     }
     if (!db) { setRecords([]); return; }
-    db.from('submissions')
-      .select('*')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .then(({ data }) => {
-        if (!data || data.length === 0) { setRecords([]); return; }
-        const picked = [...data].sort(() => Math.random() - 0.5).slice(0, 5);
-        try { localStorage.setItem('cu_limited_records', JSON.stringify(picked)); } catch (_) {}
-        setRecords(picked);
-      });
+    querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('*')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q;
+    }).then(({ data }) => {
+      if (!data || data.length === 0) { setRecords([]); return; }
+      const picked = [...data].sort(() => Math.random() - 0.5).slice(0, 5);
+      try { localStorage.setItem('cu_limited_records', JSON.stringify(picked)); } catch (_) {}
+      setRecords(picked);
+    });
   }, []);
 
   return (
@@ -1876,12 +1924,13 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
   useEffect(() => {
     if (!result) return;
     if (!db) { setPreviewRows([]); return; }
-    db.from('submissions')
-      .select('job_title, city, industry, company_type, salary_min, salary_max')
-      .or('is_visible.eq.true,is_seeded.eq.true')
-      .eq('is_flagged', false)
-      .limit(3)
-      .then(({ data }) => setPreviewRows(data || []));
+    querySubmissions((useFilter) => {
+      let q = db.from('submissions')
+        .select('job_title, city, industry, company_type, salary_min, salary_max')
+        .or('is_visible.eq.true,is_seeded.eq.true');
+      if (useFilter) q = q.eq('is_flagged', false);
+      return q.limit(3);
+    }).then(({ data }) => setPreviewRows(data || []));
   }, [result]);
 
   const cards = previewRows !== null
