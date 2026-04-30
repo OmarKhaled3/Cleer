@@ -180,6 +180,29 @@ const fmt     = (n)  => Math.round(n).toLocaleString();
 const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£' };
 const currSym = (c)  => CURRENCY_SYMBOL[c] ?? '';
 
+const toEGP = (amount, currency, rates) => {
+  if (!currency || currency === 'EGP') return amount;
+  const r = rates && rates[currency];
+  return r ? amount * r : amount;
+};
+
+const useExchangeRates = () => {
+  const [rates, setRates] = React.useState({ USD: 53, 'USD-pegged': 53, EUR: 57, GBP: 67 });
+  React.useEffect(() => {
+    if (!db) return;
+    db.from('exchange_rates').select('currency, rate_to_egp').then(({ data }) => {
+      if (data && data.length > 0) {
+        setRates(prev => {
+          const next = { ...prev };
+          data.forEach(r => { next[r.currency] = parseFloat(r.rate_to_egp); });
+          return next;
+        });
+      }
+    });
+  }, []);
+  return rates;
+};
+
 // ─── Hash-based routing ───────────────────────────────────────────────────────
 // Routes:
 //   #/              → landing
@@ -550,6 +573,7 @@ const DistributionBar = ({ scaleMin, scaleMax, lowRange, typical, highRange, use
 
 // ─── Title Detail View ────────────────────────────────────────────────────────
 const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
+  const fxRates = useExchangeRates();
   const [rows,             setRows]             = useState(null);
   const [userSalary,       setUserSalary]       = useState(() => localStorage.getItem('cu_salary') || '');
   const [activeTab,        setActiveTab]        = useState(null);
@@ -580,7 +604,8 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
     if (!rows || rows.length === 0) return null;
     const mids = rows.map(r => {
       const mid = (r.salary_min + r.salary_max) / 2;
-      return r.salary_type === 'gross' ? calcTakeHome(mid).net : mid;
+      const egp = toEGP(mid, r.currency, fxRates);
+      return r.salary_type === 'gross' ? calcTakeHome(egp).net : egp;
     }).sort((a, b) => a - b);
     const n   = mids.length;
     const at  = p => mids[Math.min(n - 1, Math.floor(n * p))];
@@ -594,7 +619,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
       count:       n,
       lastUpdated: newest.created_at,
     };
-  }, [rows]);
+  }, [rows, fxRates]);
 
   const breakdowns = useMemo(() => {
     if (!rows) return { city:[], companyType:[], experience:[] };
@@ -605,7 +630,8 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
         if (!key) return;
         if (!groups[key]) groups[key] = [];
         const mid = (r.salary_min + r.salary_max) / 2;
-        groups[key].push(r.salary_type === 'gross' ? calcTakeHome(mid).net : mid);
+        const egp = toEGP(mid, r.currency, fxRates);
+        groups[key].push(r.salary_type === 'gross' ? calcTakeHome(egp).net : egp);
       });
       return Object.entries(groups)
         .filter(([, vals]) => vals.length >= 5)
@@ -622,7 +648,7 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
       companyType: build(r => r.company_type),
       experience:  build(r => r.years_experience),
     };
-  }, [rows]);
+  }, [rows, fxRates]);
 
   const availableTabs = useMemo(() => {
     const t = [];
@@ -927,6 +953,7 @@ const CopyBtn = () => {
 
 // ─── Submit View ──────────────────────────────────────────────────────────────
 const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
+  const fxRates = useExchangeRates();
   const [form, setForm] = useState({
     title:'', industry:'', industrySub:'', companyType:'', companySize:'',
     experience:'', city:'', currency:'EGP', salaryType:'net',
@@ -984,13 +1011,17 @@ const SubmitView = ({ showGate, jiggleCount, onBrowse, onGoCalculate }) => {
     if (!db) { setBenchmark({ count: 0 }); return; }
     const { data } = await db
       .from('submissions')
-      .select('salary_min, salary_max')
+      .select('salary_min, salary_max, currency, salary_type')
       .or('is_visible.eq.true,is_seeded.eq.true')
       .ilike('job_title', title.trim())
       .eq('industry', industry)
       .eq('years_experience', experience)
       .eq('city', city);
-    const peers = (data || []).map(r => (r.salary_min + r.salary_max) / 2);
+    const peers = (data || []).map(r => {
+      const mid = (r.salary_min + r.salary_max) / 2;
+      const egp = toEGP(mid, r.currency, fxRates);
+      return r.salary_type === 'gross' ? calcTakeHome(egp).net : egp;
+    });
     const n = peers.length;
     if (n === 0) { setBenchmark({ count: 0 }); return; }
     const marketMid = peers.reduce((a, b) => a + b, 0) / n;
