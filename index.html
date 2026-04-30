@@ -209,10 +209,15 @@ const useExchangeRates = () => {
 //   #/browse        → browse
 //   #/submit        → submit
 //   #/calculate     → calculate
+//   #/browse/<industry>             → browse pre-filtered by industry
 //   #/title/<industry>/<job_title>  → title detail (within browse)
 const hashFor = (route) => {
   if (!route || route.view === 'landing')   return '#/';
-  if (route.view === 'browse')              return '#/browse';
+  if (route.view === 'browse') {
+    if (route.filters && route.filters.industry && route.filters.industry !== 'All industries')
+      return `#/browse/${encodeURIComponent(route.filters.industry)}`;
+    return '#/browse';
+  }
   if (route.view === 'submit')              return '#/submit';
   if (route.view === 'calculate')           return '#/calculate';
   if (route.view === 'title' && route.titleData)
@@ -224,7 +229,14 @@ const parseHash = () => {
   const raw = (window.location.hash || '').replace(/^#\/?/, '');
   if (!raw) return { view: 'landing' };
   const parts = raw.split('/').filter(Boolean);
-  if (parts[0] === 'browse')    return { view: 'browse' };
+  if (parts[0] === 'browse') {
+    if (parts[1]) {
+      try {
+        return { view: 'browse', filters: { industry: decodeURIComponent(parts[1]) }};
+      } catch (_) { return { view: 'browse' }; }
+    }
+    return { view: 'browse' };
+  }
   if (parts[0] === 'submit')    return { view: 'submit' };
   if (parts[0] === 'calculate') return { view: 'calculate' };
   if (parts[0] === 'title' && parts[1] && parts[2]) {
@@ -372,14 +384,18 @@ const SalaryCard = ({ entry: e, href }) => {
 // ─── Browse View ──────────────────────────────────────────────────────────────
 const CARDS_PER_PAGE = 30;
 
-const BrowseView = () => {
+const BrowseView = ({ route }) => {
+  const routeIndustry = (route && route.filters && route.filters.industry) || 'All industries';
   const [rows, setRows]                 = useState(null); // null = loading
   const [loadError, setLoadError]       = useState('');
   const [searchQuery, setSearchQuery]   = useState('');
-  const [indFilter, setIndFilter]       = useState('All industries');
+  const [indFilter, setIndFilter]       = useState(routeIndustry);
   const [typeFilter, setTypeFilter]     = useState('All company types');
   const [cityFilter, setCityFilter]     = useState('All cities');
   const [page, setPage]                 = useState(1);
+
+  // Sync industry filter when arriving via URL (e.g., breadcrumb click).
+  useEffect(() => { setIndFilter(routeIndustry); }, [routeIndustry]);
 
   useEffect(() => {
     if (!db) { setRows([]); return; }
@@ -711,7 +727,12 @@ const TitleDetailView = ({ titleData, onBack, onGoSubmit }) => {
           Browse
         </button>
         <span>›</span>
-        <span>{industry}</span>
+        <a href={hashFor({ view:'browse', filters:{ industry } })}
+          style={{ fontFamily:'DM Sans', fontSize:13, color:'#9B9690', textDecoration:'none', transition:'color 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.color='#3A9D8A'}
+          onMouseLeave={e => e.currentTarget.style.color='#9B9690'}>
+          {industry}
+        </a>
         <span>›</span>
         <span style={{ color:'#1A1916' }}>{job_title}</span>
       </div>
@@ -1667,7 +1688,7 @@ const UtilityShell = ({ route }) => {
         <div className="shell-nav-spacer" style={{ width:120 }}/>
       </nav>
 
-      {activeTab === 'browse' && !detailTitle && <BrowseView/>}
+      {activeTab === 'browse' && !detailTitle && <BrowseView route={route}/>}
       {activeTab === 'browse' &&  detailTitle && <TitleDetailView titleData={detailTitle} onBack={() => { navigate({ view: 'browse' }); window.scrollTo(0,0); }} onGoSubmit={onGoSubmit}/>}
       {activeTab === 'submit'    && <SubmitView showGate={gated} jiggleCount={jiggleCount} onBrowse={onBrowseUnlocked} onGoCalculate={onGoCalculateWithPrefill}/>}
       {activeTab === 'calculate' && <CalculatorView onGoSubmit={onGoSubmit} onGoBrowse={onBrowseUnlocked} initialMode={calcPrefill ? calcPrefill.mode : 'gross-to-net'} initialInput={calcPrefill ? calcPrefill.value : ''}/>}
