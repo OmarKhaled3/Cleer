@@ -177,6 +177,8 @@ const INDUSTRY_SUBS = {
 
 const daysAgo = (ts) => Math.max(0, Math.floor((Date.now() - new Date(ts)) / 86400000));
 const fmt     = (n)  => Math.round(n).toLocaleString();
+const CURRENCY_SYMBOL = { EGP: 'E£', USD: '$', EUR: '€', GBP: '£', 'USD-pegged': 'E£' };
+const currSym = (c)  => CURRENCY_SYMBOL[c] ?? '';
 
 // ─── Hash-based routing ───────────────────────────────────────────────────────
 // Routes:
@@ -333,7 +335,7 @@ const SalaryCard = ({ entry: e, href }) => {
         </div>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
           <div style={{ fontFamily:'Playfair Display', fontSize:22, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em' }}>
-            {e.salary_min === e.salary_max
+            {currSym(e.currency)}{e.salary_min === e.salary_max
               ? e.salary_min.toLocaleString()
               : `${e.salary_min.toLocaleString()} – ${e.salary_max.toLocaleString()}`}
           </div>
@@ -1442,7 +1444,7 @@ const CalculatorView = ({ onGoSubmit, onGoBrowse, initialMode = 'gross-to-net', 
           fontFamily:'Playfair Display', fontSize:22, fontWeight:500, color:'#3A9D8A', letterSpacing:'-0.02em',
           filter:'blur(6px)', userSelect:'none', pointerEvents:'none',
         }}>
-          {e.salary_min === e.salary_max
+          {currSym(e.currency ?? 'EGP')}{e.salary_min === e.salary_max
             ? e.salary_min.toLocaleString()
             : `${e.salary_min.toLocaleString()} – ${e.salary_max.toLocaleString()}`}
         </div>
